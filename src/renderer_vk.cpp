@@ -412,8 +412,10 @@ VK_IMPORT_DEVICE
 			KHR_wayland_surface,
 			KHR_xlib_surface,
 			KHR_xcb_surface,
+			KHR_external_memory_fd,
 #	elif BX_PLATFORM_WINDOWS
 			KHR_win32_surface,
+			KHR_external_memory_win32,
 #	elif BX_PLATFORM_OSX
 			MVK_macos_surface,
 #	elif BX_PLATFORM_NX
@@ -464,8 +466,10 @@ VK_IMPORT_DEVICE
 		{ VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME,    1, false, false, true,                                                          Layer::Count },
 		{ VK_KHR_XLIB_SURFACE_EXTENSION_NAME,       1, false, false, true,                                                          Layer::Count },
 		{ VK_KHR_XCB_SURFACE_EXTENSION_NAME,        1, false, false, true,                                                          Layer::Count },
+		{ "VK_KHR_external_memory_fd",              1, false, false, true,                                                          Layer::Count },
 #	elif BX_PLATFORM_WINDOWS
 		{ VK_KHR_WIN32_SURFACE_EXTENSION_NAME,      1, false, false, true,                                                          Layer::Count },
+		{ "VK_KHR_external_memory_win32",           1, false, false, true,                                                          Layer::Count },
 #	elif BX_PLATFORM_OSX
 		{ VK_MVK_MACOS_SURFACE_EXTENSION_NAME,      1, false, false, true,                                                          Layer::Count },
 #	elif BX_PLATFORM_NX
@@ -1404,6 +1408,7 @@ VK_IMPORT_DEVICE
 			VkPhysicalDeviceSwapchainMaintenance1FeaturesEXT swapchainMaintenance1Features = {};
 			VkPhysicalDeviceShaderFloat16Int8Features shaderFloat16Int8Features = {};
 			VkPhysicalDevice16BitStorageFeatures storage16BitFeatures = {};
+			VkPhysicalDevice8BitStorageFeatures storage8BitFeatures = {};
 			VkPhysicalDeviceTimelineSemaphoreFeatures timelineSemaphoreFeatures = {};
 			VkPhysicalDevicePresentIdFeaturesKHR presentIdFeatures = {};
 			VkPhysicalDeviceVulkan12Features vulkan12Features = {};
@@ -1417,6 +1422,8 @@ VK_IMPORT_DEVICE
 			bool imported = true;
 			VkResult result;
 			m_globalQueueFamily = UINT32_MAX;
+			m_globalQueueFamilyQueueCount = 0;
+			m_spareQueue = VK_NULL_HANDLE;
 			m_videoDecodeQueueFamily = UINT32_MAX;
 			m_videoDecodeQueue = VK_NULL_HANDLE;
 
@@ -1939,6 +1946,18 @@ VK_IMPORT_INSTANCE
 						shaderFloat16Int8Features.pNext = NULL;
 					}
 
+					// 8-bit storage buffers, for compute APIs sharing the device (see
+					// getVulkanInterop()). Part of vulkan12Features when that is chained.
+					if (!vulkan12FeaturesChained
+					&&  VK_API_VERSION_1_2 <= m_instanceApiVersion
+					&&  VK_API_VERSION_1_2 <= m_deviceProperties.apiVersion)
+					{
+						next->pNext = (VkBaseOutStructure*)&storage8BitFeatures;
+						next = (VkBaseOutStructure*)&storage8BitFeatures;
+						storage8BitFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES;
+						storage8BitFeatures.pNext = NULL;
+					}
+
 					nextFeatures = deviceFeatures2.pNext;
 
 					vkGetPhysicalDeviceFeatures2KHR(m_physicalDevice, &deviceFeatures2);
@@ -1953,6 +1972,8 @@ VK_IMPORT_INSTANCE
 
 						shaderFloat16Int8Features.shaderFloat16 = vulkan12Features.shaderFloat16;
 						shaderFloat16Int8Features.shaderInt8    = vulkan12Features.shaderInt8;
+						storage8BitFeatures.storageBuffer8BitAccess           = vulkan12Features.storageBuffer8BitAccess;
+						storage8BitFeatures.uniformAndStorageBuffer8BitAccess = vulkan12Features.uniformAndStorageBuffer8BitAccess;
 
 						void* pNext = vulkan12Features.pNext;
 						bx::memSet(&vulkan12Features, 0, sizeof(vulkan12Features) );
@@ -1963,6 +1984,8 @@ VK_IMPORT_INSTANCE
 						vulkan12Features.shaderOutputViewportIndex = shaderOutputLayer;
 						vulkan12Features.shaderOutputLayer         = shaderOutputLayer;
 						vulkan12Features.drawIndirectCount         = s_extension[Extension::KHR_draw_indirect_count].m_supported;
+						vulkan12Features.storageBuffer8BitAccess           = storage8BitFeatures.storageBuffer8BitAccess;
+						vulkan12Features.uniformAndStorageBuffer8BitAccess = storage8BitFeatures.uniformAndStorageBuffer8BitAccess;
 					}
 				}
 				else
@@ -2110,8 +2133,8 @@ VK_IMPORT_INSTANCE
 					.shaderClipDistance                      = supportedFeatures.shaderClipDistance,
 					.shaderCullDistance                      = supportedFeatures.shaderCullDistance,
 					.shaderFloat64                           = VK_FALSE,
-					.shaderInt64                             = VK_FALSE,
-					.shaderInt16                             = VK_FALSE,
+					.shaderInt64                             = supportedFeatures.shaderInt64,
+					.shaderInt16                             = supportedFeatures.shaderInt16,
 					.shaderResourceResidency                 = VK_FALSE,
 					.shaderResourceMinLod                    = supportedFeatures.shaderResourceMinLod,
 					.sparseBinding                           = VK_FALSE,
@@ -2365,6 +2388,7 @@ VK_IMPORT_INSTANCE
 					&&  requiredFlags == (requiredFlags & qfp.queueFlags) )
 					{
 						m_globalQueueFamily = ii;
+						m_globalQueueFamilyQueueCount = qfp.queueCount;
 					}
 
 					if (UINT32_MAX == m_videoDecodeQueueFamily
@@ -2436,20 +2460,24 @@ VK_IMPORT_INSTANCE
 					BX_TRACE("\t%s", enabledExtension[ii]);
 				}
 
-				const float queuePriorities[] = { 0.0f };
+				// Queue 1 of the global family, when there is one, is never used by
+				// bgfx: it is the spare queue for another API sharing the device
+				// (see getVulkanInterop()).
+				const float queuePriorities[] = { 0.0f, 0.0f };
 				VkDeviceQueueCreateInfo dcqi[2];
 				bx::memSet(dcqi, 0, sizeof(dcqi) );
 				dcqi[0].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
 				dcqi[0].pNext = NULL;
 				dcqi[0].flags = 0;
 				dcqi[0].queueFamilyIndex = m_globalQueueFamily;
-				dcqi[0].queueCount       = 1;
+				dcqi[0].queueCount       = bx::min<uint32_t>(2, m_globalQueueFamilyQueueCount);
 				dcqi[0].pQueuePriorities = queuePriorities;
 
 				uint32_t numQueueCreateInfos = 1;
 				if (m_videoDecodeQueueFamily != m_globalQueueFamily)
 				{
 					dcqi[1] = dcqi[0];
+					dcqi[1].queueCount = 1;
 					dcqi[1].queueFamilyIndex = m_videoDecodeQueueFamily;
 					numQueueCreateInfos = 2;
 				}
@@ -2499,6 +2527,12 @@ VK_IMPORT_DEVICE
 			}
 
 			vkGetDeviceQueue(m_device, m_globalQueueFamily, 0, &m_globalQueue);
+
+			if (NULL == m_externalDevice
+			&&  2 <= m_globalQueueFamilyQueueCount)
+			{
+				vkGetDeviceQueue(m_device, m_globalQueueFamily, 1, &m_spareQueue);
+			}
 			vkGetDeviceQueue(m_device, m_videoDecodeQueueFamily, 0, &m_videoDecodeQueue);
 
 			m_lowLatencySupported = true
@@ -2740,6 +2774,19 @@ VK_IMPORT_DEVICE
 			}
 
 			g_internalData.context = m_device;
+
+			g_vulkanInterop.instance       = m_instance;
+			g_vulkanInterop.physicalDevice = m_physicalDevice;
+			g_vulkanInterop.device         = m_device;
+			g_vulkanInterop.queueFamily    = m_globalQueueFamily;
+			g_vulkanInterop.spareQueue     = m_spareQueue;
+			g_vulkanInterop.externalMemory = false
+#	if BX_PLATFORM_LINUX
+				|| s_extension[Extension::KHR_external_memory_fd].m_supported
+#	elif BX_PLATFORM_WINDOWS
+				|| s_extension[Extension::KHR_external_memory_win32].m_supported
+#	endif
+				;
 			return true;
 
 		error:
@@ -2806,6 +2853,8 @@ VK_IMPORT_DEVICE
 
 		void shutdown()
 		{
+			bx::memSet(&g_vulkanInterop, 0, sizeof(g_vulkanInterop) );
+
 			VK_CHECK(vkDeviceWaitIdle(m_device) );
 
 			if (m_timerQuerySupport)
@@ -3037,6 +3086,21 @@ VK_IMPORT_DEVICE
 		void clearTexture(TextureHandle _handle, uint8_t _mip, uint8_t _numMips, uint16_t _layer, uint16_t _numLayers) override
 		{
 			m_textures[_handle.idx].clear(m_commandBuffer, _mip, _numMips, _layer, _numLayers);
+		}
+
+		void copyNativeBufferToTexture(TextureHandle _handle, uint8_t _mip, const Rect& _rect, uint16_t _z, uint16_t _depth, uint64_t _nativeBuffer, uint64_t _offset, uint32_t _pitch, uint32_t _slicePitch, bool _externalMemory, ReleaseFn _releaseFn, void* _userData) override
+		{
+			VkBuffer buffer;
+			static_assert(sizeof(buffer) == sizeof(_nativeBuffer) );
+			bx::memCopy(&buffer, &_nativeBuffer, sizeof(buffer) );
+
+			m_textures[_handle.idx].copyFromNativeBuffer(m_commandBuffer, _mip, _rect, _z, _depth, buffer, _offset, _pitch, _slicePitch, _externalMemory);
+
+			if (NULL != _releaseFn)
+			{
+				// Called once the fence of this frame's submission passed.
+				m_cmd.release(_releaseFn, (void*)uintptr_t(_nativeBuffer), _userData);
+			}
 		}
 
 		void readTexture(TextureHandle _handle, void* _data, uint16_t _layer, uint8_t _mip) override
@@ -6052,7 +6116,9 @@ VK_IMPORT_DEVICE
 		VkDevice m_device;
 		VkDevice m_externalDevice;
 		uint32_t m_globalQueueFamily;
+		uint32_t m_globalQueueFamilyQueueCount;
 		VkQueue  m_globalQueue;
+		VkQueue  m_spareQueue;
 		uint32_t m_videoDecodeQueueFamily;
 		VkQueue  m_videoDecodeQueue;
 
@@ -8904,6 +8970,99 @@ VK_DESTROY
 		setState(_commandBuffer, oldLayout);
 	}
 
+	void TextureVK::copyFromNativeBuffer(VkCommandBuffer _commandBuffer, uint8_t _mip, const Rect& _rect, uint16_t _z, uint16_t _depth, VkBuffer _buffer, uint64_t _offset, uint32_t _pitch, uint32_t _slicePitch, bool _externalMemory)
+	{
+		BGFX_PROFILER_SCOPE("TextureVK::copyFromNativeBuffer", kColorResource);
+
+		const bimg::TextureFormat::Enum format = bimg::TextureFormat::Enum(m_textureFormat);
+		BX_ASSERT(m_textureFormat == m_requestedFormat && !bimg::isCompressed(format)
+			, "copyNativeBufferToTexture: texture format %s must be uncompressed and natively supported (requested %s)."
+			, bimg::getName(format)
+			, bimg::getName(bimg::TextureFormat::Enum(m_requestedFormat) )
+			);
+
+		const uint32_t bytesPerTexel = bimg::getBitsPerPixel(format) / 8;
+		BX_ASSERT(0 == _pitch % bytesPerTexel && 0 == _offset % bytesPerTexel
+			, "copyNativeBufferToTexture: pitch %u and offset %u must be multiples of the texel size %u."
+			, _pitch
+			, uint32_t(_offset)
+			, bytesPerTexel
+			);
+
+		const uint32_t mipWidth  = bx::max(1u, m_width  >> _mip);
+		const uint32_t mipHeight = bx::max(1u, m_height >> _mip);
+		const uint32_t mipDepth  = bx::max(1u, m_depth  >> _mip);
+		const uint32_t width  = bx::min<uint32_t>(_rect.m_width,  mipWidth  - _rect.m_x);
+		const uint32_t height = bx::min<uint32_t>(_rect.m_height, mipHeight - _rect.m_y);
+		const uint32_t depth  = bx::min<uint32_t>(_depth,         mipDepth  - _z);
+
+		const uint32_t globalQueueFamily = s_renderVK->m_globalQueueFamily;
+
+		// Make the producer's writes visible to the transfer. Memory written by
+		// another API through Vulkan external memory is first acquired from
+		// VK_QUEUE_FAMILY_EXTERNAL.
+		VkBufferMemoryBarrier acquire =
+		{
+			.sType               = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+			.pNext               = NULL,
+			.srcAccessMask       = _externalMemory ? VkAccessFlags(0) : VkAccessFlags(VK_ACCESS_MEMORY_WRITE_BIT),
+			.dstAccessMask       = VK_ACCESS_TRANSFER_READ_BIT,
+			.srcQueueFamilyIndex = _externalMemory ? VK_QUEUE_FAMILY_EXTERNAL : VK_QUEUE_FAMILY_IGNORED,
+			.dstQueueFamilyIndex = _externalMemory ? globalQueueFamily        : VK_QUEUE_FAMILY_IGNORED,
+			.buffer              = _buffer,
+			.offset              = _offset,
+			.size                = VK_WHOLE_SIZE,
+		};
+
+		vkCmdPipelineBarrier(
+			  _commandBuffer
+			, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT
+			, VK_PIPELINE_STAGE_TRANSFER_BIT
+			, 0
+			, 0, NULL
+			, 1, &acquire
+			, 0, NULL
+			);
+
+		VkBufferImageCopy region =
+		{
+			.bufferOffset      = _offset,
+			.bufferRowLength   = _pitch / bytesPerTexel,
+			.bufferImageHeight = 0 == _slicePitch ? 0 : _slicePitch / _pitch, // In rows.
+			.imageSubresource =
+			{
+				.aspectMask     = m_aspectFlags,
+				.mipLevel       = _mip,
+				.baseArrayLayer = 0,
+				.layerCount     = 1,
+			},
+			.imageOffset = { .x = _rect.m_x, .y = _rect.m_y, .z = int32_t(_z) },
+			.imageExtent = { .width = width, .height = height, .depth = depth },
+		};
+
+		copyBufferToTexture(_commandBuffer, _buffer, 1, &region);
+
+		if (_externalMemory)
+		{
+			// Hand the memory back, so the other API may write it again.
+			VkBufferMemoryBarrier release = acquire;
+			release.srcAccessMask       = VK_ACCESS_TRANSFER_READ_BIT;
+			release.dstAccessMask       = 0;
+			release.srcQueueFamilyIndex = globalQueueFamily;
+			release.dstQueueFamilyIndex = VK_QUEUE_FAMILY_EXTERNAL;
+
+			vkCmdPipelineBarrier(
+				  _commandBuffer
+				, VK_PIPELINE_STAGE_TRANSFER_BIT
+				, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT
+				, 0
+				, 0, NULL
+				, 1, &release
+				, 0, NULL
+				);
+		}
+	}
+
 	void TextureVK::setState(VkCommandBuffer _commandBuffer, VkImageLayout _newImageLayout, bool _singleMsaaImage)
 	{
 		if (_singleMsaaImage
@@ -11078,6 +11237,11 @@ VK_DESTROY
 		m_release[m_currentFrameInFlight].push_back(resource);
 	}
 
+	void CommandQueueVK::release(ReleaseFn _releaseFn, void* _ptr, void* _userData)
+	{
+		m_releaseCallbacks[m_currentFrameInFlight].push_back({ _releaseFn, _ptr, _userData });
+	}
+
 	void CommandQueueVK::recycleMemory(DeviceMemoryAllocationVK _mem)
 	{
 		m_recycleAllocs[m_currentFrameInFlight].push_back(_mem);
@@ -11122,6 +11286,13 @@ VK_DESTROY
 		}
 
 		m_release[m_consumeIndex].clear();
+
+		for (const ReleaseCallback& callback : m_releaseCallbacks[m_consumeIndex])
+		{
+			callback.m_releaseFn(callback.m_ptr, callback.m_userData);
+		}
+
+		m_releaseCallbacks[m_consumeIndex].clear();
 	}
 
 	void CommandQueueVK::addExternal(TextureHandle _handle)

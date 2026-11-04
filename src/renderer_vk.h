@@ -743,6 +743,7 @@ VK_DESTROY_FUNC(DescriptorSet);
 		void resolve(VkCommandBuffer _commandBuffer, uint8_t _resolve, uint32_t _layer, uint32_t _numLayers, uint32_t _mip);
 
 		void copyBufferToTexture(VkCommandBuffer _commandBuffer, VkBuffer _stagingBuffer, uint32_t _bufferImageCopyCount, VkBufferImageCopy* _bufferImageCopy);
+		void copyFromNativeBuffer(VkCommandBuffer _commandBuffer, uint8_t _mip, const Rect& _rect, uint16_t _z, uint16_t _depth, VkBuffer _buffer, uint64_t _offset, uint32_t _pitch, uint32_t _slicePitch, bool _externalMemory);
 		void setState(VkCommandBuffer _commandBuffer, VkImageLayout _newImageLayout, bool _singleMsaaImage = false);
 
 		VkResult createView(uint32_t _layer, uint32_t _numLayers, uint32_t _mip, uint32_t _numMips, VkImageViewType _type, VkImageAspectFlags _aspectMask, bool _renderTarget, ::VkImageView* _view, VkFormat _format = VK_FORMAT_UNDEFINED, bool _msaa = false) const;
@@ -963,6 +964,7 @@ VK_DESTROY_FUNC(DescriptorSet);
 		void finish(bool _finishAll = false);
 
 		void release(uint64_t _handle, VkObjectType _type);
+		void release(ReleaseFn _releaseFn, void* _ptr, void* _userData);
 		void recycleMemory(DeviceMemoryAllocationVK _mem);
 		void consume();
 
@@ -1005,6 +1007,16 @@ VK_DESTROY_FUNC(DescriptorSet);
 
 		typedef stl::vector<Resource> ResourceArray;
 		ResourceArray m_release[BGFX_CONFIG_MAX_FRAME_LATENCY];
+
+		struct ReleaseCallback
+		{
+			ReleaseFn m_releaseFn;
+			void*     m_ptr;
+			void*     m_userData;
+		};
+
+		typedef stl::vector<ReleaseCallback> ReleaseCallbackArray;
+		ReleaseCallbackArray m_releaseCallbacks[BGFX_CONFIG_MAX_FRAME_LATENCY];
 		stl::vector<DeviceMemoryAllocationVK> m_recycleAllocs[BGFX_CONFIG_MAX_FRAME_LATENCY];
 		typedef stl::vector<TextureHandle> ExternalTextureArray;
 		ExternalTextureArray m_external;

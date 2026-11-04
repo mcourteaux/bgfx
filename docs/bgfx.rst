@@ -200,6 +200,9 @@ It is only necessary to use these APIs in conjunction with creating windows.
 .. doxygenstruct:: bgfx::RenderFrame
     :members:
 
+.. doxygenstruct:: bgfx::VulkanInterop
+    :members:
+
 .. doxygenstruct:: bgfx::InternalData
     :members:
 
@@ -208,6 +211,7 @@ It is only necessary to use these APIs in conjunction with creating windows.
 
 .. doxygenfunction:: bgfx::renderFrame
 .. doxygenfunction:: bgfx::getInternalData
+.. doxygenfunction:: bgfx::getVulkanInterop
 
 Miscellaneous
 ~~~~~~~~~~~~~
@@ -652,6 +656,8 @@ Textures
 .. doxygenfunction:: bgfx::createTextureCube
 .. doxygenfunction:: bgfx::updateTexture2D
 .. doxygenfunction:: bgfx::updateTexture3D
+.. doxygenfunction:: bgfx::copyNativeBufferToTexture2D
+.. doxygenfunction:: bgfx::copyNativeBufferToTexture3D
 .. doxygenfunction:: bgfx::updateTextureCube
 .. doxygenfunction:: bgfx::clear
 .. doxygenfunction:: bgfx::read(const TextureRegion & _src, void* _data)

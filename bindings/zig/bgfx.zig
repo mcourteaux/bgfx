@@ -1675,6 +1675,15 @@ pub const Caps = extern struct {
         codecs: [3]u32,
     };
 
+    pub const VulkanInterop = extern struct {
+        instance: ?*anyopaque,
+        physicalDevice: ?*anyopaque,
+        device: ?*anyopaque,
+        queueFamily: u32,
+        spareQueue: ?*anyopaque,
+        externalMemory: bool,
+    };
+
     pub const InternalData = extern struct {
         caps: [*c]const Caps,
         context: ?*anyopaque,
@@ -3278,6 +3287,62 @@ pub inline fn updateTexture3D(_handle: TextureHandle, _mip: u8, _x: u16, _y: u16
 }
 extern fn bgfx_update_texture_3d(_handle: TextureHandle, _mip: u8, _x: u16, _y: u16, _z: u16, _width: u16, _height: u16, _depth: u16, _mem: [*c]const Memory) void;
 
+/// Copy a region of a native GPU buffer into a 2D texture, on the GPU: no
+/// round trip through host memory. For interop with compute APIs (e.g.
+/// Halide, CUDA, OpenCL) that produce texture data in device memory.
+/// 
+/// The copy is ordered with the other texture updates of the frame. The
+/// producer must have finished writing the buffer (e.g. waited for its
+/// queue or stream) before this call.
+/// 
+/// @attention Vulkan and Metal renderers only; elsewhere nothing is copied
+///   and `_releaseFn` is called right away. The texture format must be
+///   uncompressed and natively supported (no conversion by bgfx).
+/// 
+/// <param name="_handle">Texture handle.</param>
+/// <param name="_mip">Mip level.</param>
+/// <param name="_x">X offset in texture.</param>
+/// <param name="_y">Y offset in texture.</param>
+/// <param name="_width">Width of texture block.</param>
+/// <param name="_height">Height of texture block.</param>
+/// <param name="_nativeBuffer">Vulkan: `VkBuffer` created on bgfx's device (see   `bgfx::getVulkanInterop`) with `VK_BUFFER_USAGE_TRANSFER_SRC_BIT`.   Metal: `id<MTLBuffer>`.</param>
+/// <param name="_offset">Byte offset of the block's first texel in the buffer;   multiple of the texel size.</param>
+/// <param name="_pitch">Bytes between rows in the buffer; multiple of the texel size.</param>
+/// <param name="_externalMemory">The buffer's memory was written outside of this device   (Vulkan external memory, e.g. imported by CUDA or OpenCL):   ownership is acquired from and released back to   `VK_QUEUE_FAMILY_EXTERNAL` around the copy.</param>
+/// <param name="_releaseFn">Called with `_userData` once the GPU has finished the   copy, so the buffer may be reused or freed (on the   render thread). `_ptr` is the native buffer.</param>
+/// <param name="_userData">User data passed to `_releaseFn`.</param>
+pub inline fn copyNativeBufferToTexture2D(_handle: TextureHandle, _mip: u8, _x: u16, _y: u16, _width: u16, _height: u16, _nativeBuffer: u64, _offset: u64, _pitch: u32, _externalMemory: bool, _releaseFn: ?*anyopaque, _userData: ?*anyopaque) void {
+    return bgfx_copy_native_buffer_to_texture_2d(_handle, _mip, _x, _y, _width, _height, _nativeBuffer, _offset, _pitch, _externalMemory, _releaseFn, _userData);
+}
+extern fn bgfx_copy_native_buffer_to_texture_2d(_handle: TextureHandle, _mip: u8, _x: u16, _y: u16, _width: u16, _height: u16, _nativeBuffer: u64, _offset: u64, _pitch: u32, _externalMemory: bool, _releaseFn: ?*anyopaque, _userData: ?*anyopaque) void;
+
+/// Copy a box of a native GPU buffer into a 3D texture, on the GPU. Like
+/// `bgfx::copyNativeBufferToTexture2D`, with slices.
+/// 
+/// @attention Vulkan and Metal renderers only; elsewhere nothing is copied
+///   and `_releaseFn` is called right away. The texture format must be
+///   uncompressed and natively supported (no conversion by bgfx).
+/// 
+/// <param name="_handle">Texture handle.</param>
+/// <param name="_mip">Mip level.</param>
+/// <param name="_x">X offset in texture.</param>
+/// <param name="_y">Y offset in texture.</param>
+/// <param name="_z">Z offset in texture.</param>
+/// <param name="_width">Width of texture block.</param>
+/// <param name="_height">Height of texture block.</param>
+/// <param name="_depth">Depth of texture block.</param>
+/// <param name="_nativeBuffer">Vulkan: `VkBuffer` created on bgfx's device. Metal: `id<MTLBuffer>`.</param>
+/// <param name="_offset">Byte offset of the block's first texel in the buffer;   multiple of the texel size.</param>
+/// <param name="_pitch">Bytes between rows in the buffer; multiple of the texel size.</param>
+/// <param name="_slicePitch">Bytes between slices in the buffer; multiple of `_pitch`.</param>
+/// <param name="_externalMemory">See `bgfx::copyNativeBufferToTexture2D`.</param>
+/// <param name="_releaseFn">See `bgfx::copyNativeBufferToTexture2D`.</param>
+/// <param name="_userData">User data passed to `_releaseFn`.</param>
+pub inline fn copyNativeBufferToTexture3D(_handle: TextureHandle, _mip: u8, _x: u16, _y: u16, _z: u16, _width: u16, _height: u16, _depth: u16, _nativeBuffer: u64, _offset: u64, _pitch: u32, _slicePitch: u32, _externalMemory: bool, _releaseFn: ?*anyopaque, _userData: ?*anyopaque) void {
+    return bgfx_copy_native_buffer_to_texture_3d(_handle, _mip, _x, _y, _z, _width, _height, _depth, _nativeBuffer, _offset, _pitch, _slicePitch, _externalMemory, _releaseFn, _userData);
+}
+extern fn bgfx_copy_native_buffer_to_texture_3d(_handle: TextureHandle, _mip: u8, _x: u16, _y: u16, _z: u16, _width: u16, _height: u16, _depth: u16, _nativeBuffer: u64, _offset: u64, _pitch: u32, _slicePitch: u32, _externalMemory: bool, _releaseFn: ?*anyopaque, _userData: ?*anyopaque) void;
+
 /// Update Cube texture.
 /// 
 /// @attention It's valid to update only mutable texture. See `bgfx::createTextureCube` for more info.
@@ -4333,6 +4398,15 @@ pub inline fn getInternalData() [*c]const InternalData {
     return bgfx_get_internal_data();
 }
 extern fn bgfx_get_internal_data() [*c]const InternalData;
+
+/// Get the native Vulkan objects of the renderer.
+/// 
+/// @attention Valid after `bgfx::init` until `bgfx::shutdown`.
+/// 
+pub inline fn getVulkanInterop() [*c]const VulkanInterop {
+    return bgfx_get_vulkan_interop();
+}
+extern fn bgfx_get_vulkan_interop() [*c]const VulkanInterop;
 
 /// Sets a debug marker. This allows you to group graphics calls together for easy browsing in
 /// graphics debugging tools.

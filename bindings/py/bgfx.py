@@ -675,6 +675,9 @@ class CapsLimits(ctypes.Structure):
 class Caps(ctypes.Structure):
 	pass
 
+class VulkanInterop(ctypes.Structure):
+	pass
+
 class InternalData(ctypes.Structure):
 	pass
 
@@ -887,6 +890,15 @@ Caps._fields_ = [
 	("limits", CapsLimits),
 	("formats", (ctypes.c_uint32 * 105)),
 	("codecs", (ctypes.c_uint32 * 3)),
+]
+
+VulkanInterop._fields_ = [
+	("instance", ctypes.c_void_p),
+	("physicalDevice", ctypes.c_void_p),
+	("device", ctypes.c_void_p),
+	("queueFamily", ctypes.c_uint32),
+	("spareQueue", ctypes.c_void_p),
+	("externalMemory", ctypes.c_bool),
 ]
 
 InternalData._fields_ = [
@@ -1434,6 +1446,14 @@ def _bind(lib):
 	bgfx_update_texture_3d = lib.bgfx_update_texture_3d
 	bgfx_update_texture_3d.argtypes = [TextureHandle, ctypes.c_uint8, ctypes.c_uint16, ctypes.c_uint16, ctypes.c_uint16, ctypes.c_uint16, ctypes.c_uint16, ctypes.c_uint16, ctypes.POINTER(Memory)]
 	bgfx_update_texture_3d.restype = None
+	global bgfx_copy_native_buffer_to_texture_2d
+	bgfx_copy_native_buffer_to_texture_2d = lib.bgfx_copy_native_buffer_to_texture_2d
+	bgfx_copy_native_buffer_to_texture_2d.argtypes = [TextureHandle, ctypes.c_uint8, ctypes.c_uint16, ctypes.c_uint16, ctypes.c_uint16, ctypes.c_uint16, ctypes.c_uint64, ctypes.c_uint64, ctypes.c_uint32, ctypes.c_bool, ReleaseFn, ctypes.c_void_p]
+	bgfx_copy_native_buffer_to_texture_2d.restype = None
+	global bgfx_copy_native_buffer_to_texture_3d
+	bgfx_copy_native_buffer_to_texture_3d = lib.bgfx_copy_native_buffer_to_texture_3d
+	bgfx_copy_native_buffer_to_texture_3d.argtypes = [TextureHandle, ctypes.c_uint8, ctypes.c_uint16, ctypes.c_uint16, ctypes.c_uint16, ctypes.c_uint16, ctypes.c_uint16, ctypes.c_uint16, ctypes.c_uint64, ctypes.c_uint64, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_bool, ReleaseFn, ctypes.c_void_p]
+	bgfx_copy_native_buffer_to_texture_3d.restype = None
 	global bgfx_update_texture_cube
 	bgfx_update_texture_cube = lib.bgfx_update_texture_cube
 	bgfx_update_texture_cube.argtypes = [TextureHandle, ctypes.c_uint16, ctypes.c_uint8, ctypes.c_uint8, ctypes.c_uint16, ctypes.c_uint16, ctypes.c_uint16, ctypes.c_uint16, ctypes.POINTER(Memory), ctypes.c_uint16]
@@ -1814,6 +1834,10 @@ def _bind(lib):
 	bgfx_get_internal_data = lib.bgfx_get_internal_data
 	bgfx_get_internal_data.argtypes = []
 	bgfx_get_internal_data.restype = ctypes.POINTER(InternalData)
+	global bgfx_get_vulkan_interop
+	bgfx_get_vulkan_interop = lib.bgfx_get_vulkan_interop
+	bgfx_get_vulkan_interop.argtypes = []
+	bgfx_get_vulkan_interop.restype = ctypes.POINTER(VulkanInterop)
 	global bgfx_set_marker
 	bgfx_set_marker = lib.bgfx_set_marker
 	bgfx_set_marker.argtypes = [ctypes.c_char_p, ctypes.c_int32]

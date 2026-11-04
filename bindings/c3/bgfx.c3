@@ -1819,6 +1819,26 @@ struct Caps
 }
 
 // Internal data.
+// Native Vulkan objects of the renderer, for interop with compute APIs that
+// share its device (e.g. Halide's Vulkan runtime) or import its memory (CUDA, OpenCL).
+struct VulkanInterop
+{
+	// `VkInstance`.
+	void* instance;
+	// `VkPhysicalDevice`.
+	void* physicalDevice;
+	// `VkDevice`.
+	void* device;
+	// Family of bgfx's queue (graphics and compute).
+	uint queueFamily;
+	// `VkQueue` of `queueFamily` that bgfx never uses, for another
+	//   API on the same device; NULL when the family has a single queue.
+	void* spareQueue;
+	// `VK_KHR_external_memory_fd` (`_win32` on Windows) is enabled:
+	//   memory can be exported to other APIs.
+	bool externalMemory;
+}
+
 struct InternalData
 {
 	// Renderer capabilities.
@@ -2993,6 +3013,56 @@ extern fn void update_texture_2d(TextureHandle _handle, ushort _layer, char _mip
 // _mem : `Texture update data.`
 extern fn void update_texture_3d(TextureHandle _handle, char _mip, ushort _x, ushort _y, ushort _z, ushort _width, ushort _height, ushort _depth, Memory* _mem) @cname("bgfx_update_texture_3d");
 
+// Copy a region of a native GPU buffer into a 2D texture, on the GPU: no
+// round trip through host memory. For interop with compute APIs (e.g.
+// Halide, CUDA, OpenCL) that produce texture data in device memory.
+// 
+// The copy is ordered with the other texture updates of the frame. The
+// producer must have finished writing the buffer (e.g. waited for its
+// queue or stream) before this call.
+// 
+// @attention Vulkan and Metal renderers only; elsewhere nothing is copied
+//   and `_releaseFn` is called right away. The texture format must be
+//   uncompressed and natively supported (no conversion by bgfx).
+// 
+// _handle : `Texture handle.`
+// _mip : `Mip level.`
+// _x : `X offset in texture.`
+// _y : `Y offset in texture.`
+// _width : `Width of texture block.`
+// _height : `Height of texture block.`
+// _nativeBuffer : `Vulkan: `VkBuffer` created on bgfx's device (see   `bgfx::getVulkanInterop`) with `VK_BUFFER_USAGE_TRANSFER_SRC_BIT`.   Metal: `id<MTLBuffer>`.`
+// _offset : `Byte offset of the block's first texel in the buffer;   multiple of the texel size.`
+// _pitch : `Bytes between rows in the buffer; multiple of the texel size.`
+// _externalMemory : `The buffer's memory was written outside of this device   (Vulkan external memory, e.g. imported by CUDA or OpenCL):   ownership is acquired from and released back to   `VK_QUEUE_FAMILY_EXTERNAL` around the copy.`
+// _releaseFn : `Called with `_userData` once the GPU has finished the   copy, so the buffer may be reused or freed (on the   render thread). `_ptr` is the native buffer.`
+// _userData : `User data passed to `_releaseFn`.`
+extern fn void copy_native_buffer_to_texture_2d(TextureHandle _handle, char _mip, ushort _x, ushort _y, ushort _width, ushort _height, ulong _nativeBuffer, ulong _offset, uint _pitch, bool _externalMemory, void* _releaseFn, void* _userData) @cname("bgfx_copy_native_buffer_to_texture_2d");
+
+// Copy a box of a native GPU buffer into a 3D texture, on the GPU. Like
+// `bgfx::copyNativeBufferToTexture2D`, with slices.
+// 
+// @attention Vulkan and Metal renderers only; elsewhere nothing is copied
+//   and `_releaseFn` is called right away. The texture format must be
+//   uncompressed and natively supported (no conversion by bgfx).
+// 
+// _handle : `Texture handle.`
+// _mip : `Mip level.`
+// _x : `X offset in texture.`
+// _y : `Y offset in texture.`
+// _z : `Z offset in texture.`
+// _width : `Width of texture block.`
+// _height : `Height of texture block.`
+// _depth : `Depth of texture block.`
+// _nativeBuffer : `Vulkan: `VkBuffer` created on bgfx's device. Metal: `id<MTLBuffer>`.`
+// _offset : `Byte offset of the block's first texel in the buffer;   multiple of the texel size.`
+// _pitch : `Bytes between rows in the buffer; multiple of the texel size.`
+// _slicePitch : `Bytes between slices in the buffer; multiple of `_pitch`.`
+// _externalMemory : `See `bgfx::copyNativeBufferToTexture2D`.`
+// _releaseFn : `See `bgfx::copyNativeBufferToTexture2D`.`
+// _userData : `User data passed to `_releaseFn`.`
+extern fn void copy_native_buffer_to_texture_3d(TextureHandle _handle, char _mip, ushort _x, ushort _y, ushort _z, ushort _width, ushort _height, ushort _depth, ulong _nativeBuffer, ulong _offset, uint _pitch, uint _slicePitch, bool _externalMemory, void* _releaseFn, void* _userData) @cname("bgfx_copy_native_buffer_to_texture_3d");
+
 // Update Cube texture.
 // 
 // @attention It's valid to update only mutable texture. See `bgfx::createTextureCube` for more info.
@@ -3910,6 +3980,12 @@ extern fn RenderFrame render_frame(int _msecs) @cname("bgfx_render_frame");
 // @warning Must be called only on render thread.
 // 
 extern fn InternalData* get_internal_data() @cname("bgfx_get_internal_data");
+
+// Get the native Vulkan objects of the renderer.
+// 
+// @attention Valid after `bgfx::init` until `bgfx::shutdown`.
+// 
+extern fn VulkanInterop* get_vulkan_interop() @cname("bgfx_get_vulkan_interop");
 
 // Sets a debug marker. This allows you to group graphics calls together for easy browsing in
 // graphics debugging tools.

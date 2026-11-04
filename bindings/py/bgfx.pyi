@@ -1375,6 +1375,24 @@ class Caps(ctypes.Structure):
 	codecs: ctypes.Array
 
 # Internal data.
+# Native Vulkan objects of the renderer, for interop with compute APIs that
+# share its device (e.g. Halide's Vulkan runtime) or import its memory (CUDA, OpenCL).
+class VulkanInterop(ctypes.Structure):
+	# `VkInstance`.
+	instance: Any
+	# `VkPhysicalDevice`.
+	physicalDevice: Any
+	# `VkDevice`.
+	device: Any
+	# Family of bgfx's queue (graphics and compute).
+	queueFamily: int
+	# `VkQueue` of `queueFamily` that bgfx never uses, for another
+	#   API on the same device; NULL when the family has a single queue.
+	spareQueue: Any
+	# `VK_KHR_external_memory_fd` (`_win32` on Windows) is enabled:
+	#   memory can be exported to other APIs.
+	externalMemory: bool
+
 class InternalData(ctypes.Structure):
 	# Renderer capabilities.
 	caps: _Pointer[Caps]
@@ -2441,6 +2459,60 @@ def bgfx_update_texture_3d(
 	/,
 ) -> None: ...
 
+# Copy a region of a native GPU buffer into a 2D texture, on the GPU: no
+# round trip through host memory. For interop with compute APIs (e.g.
+# Halide, CUDA, OpenCL) that produce texture data in device memory.
+# 
+# The copy is ordered with the other texture updates of the frame. The
+# producer must have finished writing the buffer (e.g. waited for its
+# queue or stream) before this call.
+# 
+# @attention Vulkan and Metal renderers only; elsewhere nothing is copied
+#   and `_releaseFn` is called right away. The texture format must be
+#   uncompressed and natively supported (no conversion by bgfx).
+# 
+def bgfx_copy_native_buffer_to_texture_2d(
+	_handle: TextureHandle,
+	_mip: int,
+	_x: int,
+	_y: int,
+	_width: int,
+	_height: int,
+	_nativeBuffer: int,
+	_offset: int,
+	_pitch: int,
+	_externalMemory: bool,
+	_releaseFn: Any,
+	_userData: Any,
+	/,
+) -> None: ...
+
+# Copy a box of a native GPU buffer into a 3D texture, on the GPU. Like
+# `bgfx::copyNativeBufferToTexture2D`, with slices.
+# 
+# @attention Vulkan and Metal renderers only; elsewhere nothing is copied
+#   and `_releaseFn` is called right away. The texture format must be
+#   uncompressed and natively supported (no conversion by bgfx).
+# 
+def bgfx_copy_native_buffer_to_texture_3d(
+	_handle: TextureHandle,
+	_mip: int,
+	_x: int,
+	_y: int,
+	_z: int,
+	_width: int,
+	_height: int,
+	_depth: int,
+	_nativeBuffer: int,
+	_offset: int,
+	_pitch: int,
+	_slicePitch: int,
+	_externalMemory: bool,
+	_releaseFn: Any,
+	_userData: Any,
+	/,
+) -> None: ...
+
 # Update Cube texture.
 # 
 # @attention It's valid to update only mutable texture. See `bgfx::createTextureCube` for more info.
@@ -3218,6 +3290,12 @@ def bgfx_render_frame(_msecs: int, /) -> int: ...
 # @warning Must be called only on render thread.
 # 
 def bgfx_get_internal_data() -> _Pointer[InternalData]: ...
+
+# Get the native Vulkan objects of the renderer.
+# 
+# @attention Valid after `bgfx::init` until `bgfx::shutdown`.
+# 
+def bgfx_get_vulkan_interop() -> _Pointer[VulkanInterop]: ...
 
 # Sets a debug marker. This allows you to group graphics calls together for easy browsing in
 # graphics debugging tools.
