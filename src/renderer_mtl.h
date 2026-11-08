@@ -657,6 +657,7 @@ namespace bgfx { namespace mtl
 		void kick(bool _endFrame, bool _waitForFinish);
 		void finish(bool _finishAll);
 		void release(NS::Object* _ptr);
+		void release(ReleaseFn _releaseFn, void* _ptr, void* _userData);
 
 		template<typename T>
 		void release(T* _ptr) { release( (NS::Object*)(const void*)_ptr ); }
@@ -679,6 +680,17 @@ namespace bgfx { namespace mtl
 
 		typedef stl::vector<Release> ReleaseArray;
 		ReleaseArray m_release;
+
+		struct ReleaseCallback
+		{
+			ReleaseFn m_releaseFn;
+			void*     m_ptr;
+			void*     m_userData;
+			uint32_t  m_frame;
+		};
+
+		typedef stl::vector<ReleaseCallback> ReleaseCallbackArray;
+		ReleaseCallbackArray m_releaseCallbacks;
 	};
 
 	struct TimerQueryMtl

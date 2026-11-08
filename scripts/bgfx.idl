@@ -2215,13 +2215,14 @@ func.updateTexture3D { section = "Textures" }
 --- Copy a region of a native GPU buffer into a 2D texture, on the GPU: no
 --- round trip through host memory. For texture data produced in device memory
 --- by another API, e.g. CUDA or OpenCL writing into memory exported by bgfx's
---- Vulkan device (see `InternalData::Vulkan`).
+--- Vulkan device (see `InternalData::Vulkan`), or a compute API using bgfx's
+--- Metal device (`InternalData::context`).
 ---
 --- The copy is ordered with the other texture updates of the frame. The
 --- producer must have finished writing the buffer (e.g. waited for its stream
 --- or queue) before this call.
 ---
---- @attention Vulkan renderer only; elsewhere nothing is copied and `_releaseFn`
+--- @attention Vulkan and Metal renderers only; elsewhere nothing is copied and `_releaseFn`
 ---   is called right away. The texture format must be uncompressed and natively
 ---   supported (no conversion by bgfx).
 ---
@@ -2233,8 +2234,9 @@ func.copyNativeBufferToTexture2D { section = "Textures" }
 	.y              "uint16_t"      --- Y offset in texture.
 	.width          "uint16_t"      --- Width of texture block.
 	.height         "uint16_t"      --- Height of texture block.
-	.nativeBuffer   "uint64_t"      --- `VkBuffer` created on bgfx's device (the `VkDevice` in
+	.nativeBuffer   "uint64_t"      --- Vulkan: `VkBuffer` created on bgfx's device (the `VkDevice` in
 	                                ---   `InternalData::context`) with `VK_BUFFER_USAGE_TRANSFER_SRC_BIT`.
+	                                ---   Metal: `id<MTLBuffer>` of bgfx's device (`InternalData::context`).
 	.offset         "uint64_t"      --- Byte offset of the block's first texel in the buffer;
 	                                ---   multiple of the texel size.
 	.pitch          "uint32_t"      --- Bytes between rows in the buffer; multiple of the texel size.
@@ -2252,7 +2254,7 @@ func.copyNativeBufferToTexture2D { section = "Textures" }
 --- Copy a box of a native GPU buffer into a 3D texture, on the GPU. Like
 --- `bgfx::copyNativeBufferToTexture2D`, with slices.
 ---
---- @attention Vulkan renderer only; elsewhere nothing is copied and `_releaseFn`
+--- @attention Vulkan and Metal renderers only; elsewhere nothing is copied and `_releaseFn`
 ---   is called right away. The texture format must be uncompressed and natively
 ---   supported (no conversion by bgfx).
 ---
@@ -2266,7 +2268,7 @@ func.copyNativeBufferToTexture3D { section = "Textures" }
 	.width          "uint16_t"      --- Width of texture block.
 	.height         "uint16_t"      --- Height of texture block.
 	.depth          "uint16_t"      --- Depth of texture block.
-	.nativeBuffer   "uint64_t"      --- `VkBuffer` created on bgfx's device.
+	.nativeBuffer   "uint64_t"      --- Vulkan: `VkBuffer` created on bgfx's device. Metal: `id<MTLBuffer>`.
 	.offset         "uint64_t"      --- Byte offset of the block's first texel in the buffer;
 	                                ---   multiple of the texel size.
 	.pitch          "uint32_t"      --- Bytes between rows in the buffer; multiple of the texel size.

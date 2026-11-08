@@ -4037,13 +4037,14 @@ public static class bgfx
 	/// Copy a region of a native GPU buffer into a 2D texture, on the GPU: no
 	/// round trip through host memory. For texture data produced in device memory
 	/// by another API, e.g. CUDA or OpenCL writing into memory exported by bgfx's
-	/// Vulkan device (see `InternalData::Vulkan`).
+	/// Vulkan device (see `InternalData::Vulkan`), or a compute API using bgfx's
+	/// Metal device (`InternalData::context`).
 	/// 
 	/// The copy is ordered with the other texture updates of the frame. The
 	/// producer must have finished writing the buffer (e.g. waited for its stream
 	/// or queue) before this call.
 	/// 
-	/// @attention Vulkan renderer only; elsewhere nothing is copied and `_releaseFn`
+	/// @attention Vulkan and Metal renderers only; elsewhere nothing is copied and `_releaseFn`
 	///   is called right away. The texture format must be uncompressed and natively
 	///   supported (no conversion by bgfx).
 	/// 
@@ -4055,7 +4056,7 @@ public static class bgfx
 	/// <param name="_y">Y offset in texture.</param>
 	/// <param name="_width">Width of texture block.</param>
 	/// <param name="_height">Height of texture block.</param>
-	/// <param name="_nativeBuffer">`VkBuffer` created on bgfx's device (the `VkDevice` in   `InternalData::context`) with `VK_BUFFER_USAGE_TRANSFER_SRC_BIT`.</param>
+	/// <param name="_nativeBuffer">Vulkan: `VkBuffer` created on bgfx's device (the `VkDevice` in   `InternalData::context`) with `VK_BUFFER_USAGE_TRANSFER_SRC_BIT`.   Metal: `id<MTLBuffer>` of bgfx's device (`InternalData::context`).</param>
 	/// <param name="_offset">Byte offset of the block's first texel in the buffer;   multiple of the texel size.</param>
 	/// <param name="_pitch">Bytes between rows in the buffer; multiple of the texel size.</param>
 	/// <param name="_externalMemory">The buffer's memory is written by another API (external   memory): ownership is acquired from and released back to   `VK_QUEUE_FAMILY_EXTERNAL` around the copy.</param>
@@ -4069,7 +4070,7 @@ public static class bgfx
 	/// Copy a box of a native GPU buffer into a 3D texture, on the GPU. Like
 	/// `bgfx::copyNativeBufferToTexture2D`, with slices.
 	/// 
-	/// @attention Vulkan renderer only; elsewhere nothing is copied and `_releaseFn`
+	/// @attention Vulkan and Metal renderers only; elsewhere nothing is copied and `_releaseFn`
 	///   is called right away. The texture format must be uncompressed and natively
 	///   supported (no conversion by bgfx).
 	/// 
@@ -4083,7 +4084,7 @@ public static class bgfx
 	/// <param name="_width">Width of texture block.</param>
 	/// <param name="_height">Height of texture block.</param>
 	/// <param name="_depth">Depth of texture block.</param>
-	/// <param name="_nativeBuffer">`VkBuffer` created on bgfx's device.</param>
+	/// <param name="_nativeBuffer">Vulkan: `VkBuffer` created on bgfx's device. Metal: `id<MTLBuffer>`.</param>
 	/// <param name="_offset">Byte offset of the block's first texel in the buffer;   multiple of the texel size.</param>
 	/// <param name="_pitch">Bytes between rows in the buffer; multiple of the texel size.</param>
 	/// <param name="_slicePitch">Bytes between slices in the buffer; multiple of `_pitch`.</param>

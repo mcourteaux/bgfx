@@ -2502,13 +2502,14 @@ BGFX_C_API void bgfx_update_texture_3d(bgfx_texture_handle_t _handle, uint8_t _m
  * Copy a region of a native GPU buffer into a 2D texture, on the GPU: no
  * round trip through host memory. For texture data produced in device memory
  * by another API, e.g. CUDA or OpenCL writing into memory exported by bgfx's
- * Vulkan device (see `InternalData::Vulkan`).
+ * Vulkan device (see `InternalData::Vulkan`), or a compute API using bgfx's
+ * Metal device (`InternalData::context`).
  *
  * The copy is ordered with the other texture updates of the frame. The
  * producer must have finished writing the buffer (e.g. waited for its stream
  * or queue) before this call.
  *
- * @attention Vulkan renderer only; elsewhere nothing is copied and `_releaseFn`
+ * @attention Vulkan and Metal renderers only; elsewhere nothing is copied and `_releaseFn`
  *   is called right away. The texture format must be uncompressed and natively
  *   supported (no conversion by bgfx).
  *
@@ -2518,8 +2519,9 @@ BGFX_C_API void bgfx_update_texture_3d(bgfx_texture_handle_t _handle, uint8_t _m
  * @param[in] _y Y offset in texture.
  * @param[in] _width Width of texture block.
  * @param[in] _height Height of texture block.
- * @param[in] _nativeBuffer `VkBuffer` created on bgfx's device (the `VkDevice` in
+ * @param[in] _nativeBuffer Vulkan: `VkBuffer` created on bgfx's device (the `VkDevice` in
  *    `InternalData::context`) with `VK_BUFFER_USAGE_TRANSFER_SRC_BIT`.
+ *    Metal: `id<MTLBuffer>` of bgfx's device (`InternalData::context`).
  * @param[in] _offset Byte offset of the block's first texel in the buffer;
  *    multiple of the texel size.
  * @param[in] _pitch Bytes between rows in the buffer; multiple of the texel size.
@@ -2538,7 +2540,7 @@ BGFX_C_API void bgfx_copy_native_buffer_to_texture_2d(bgfx_texture_handle_t _han
  * Copy a box of a native GPU buffer into a 3D texture, on the GPU. Like
  * `bgfx::copyNativeBufferToTexture2D`, with slices.
  *
- * @attention Vulkan renderer only; elsewhere nothing is copied and `_releaseFn`
+ * @attention Vulkan and Metal renderers only; elsewhere nothing is copied and `_releaseFn`
  *   is called right away. The texture format must be uncompressed and natively
  *   supported (no conversion by bgfx).
  *
@@ -2550,7 +2552,7 @@ BGFX_C_API void bgfx_copy_native_buffer_to_texture_2d(bgfx_texture_handle_t _han
  * @param[in] _width Width of texture block.
  * @param[in] _height Height of texture block.
  * @param[in] _depth Depth of texture block.
- * @param[in] _nativeBuffer `VkBuffer` created on bgfx's device.
+ * @param[in] _nativeBuffer Vulkan: `VkBuffer` created on bgfx's device. Metal: `id<MTLBuffer>`.
  * @param[in] _offset Byte offset of the block's first texel in the buffer;
  *    multiple of the texel size.
  * @param[in] _pitch Bytes between rows in the buffer; multiple of the texel size.

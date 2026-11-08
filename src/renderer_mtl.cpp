@@ -1446,6 +1446,46 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
 			m_textures[_handle.idx].clear(_mip, _numMips, _layer, _numLayers);
 		}
 
+		void copyNativeBufferToTexture(TextureHandle _handle, uint8_t _mip, const Rect& _rect, uint16_t _z, uint16_t _depth, uint64_t _nativeBuffer, uint64_t _offset, uint32_t _pitch, uint32_t _slicePitch, bool _externalMemory, ReleaseFn _releaseFn, void* _userData) override
+		{
+			BX_UNUSED(_externalMemory);
+
+			TextureMtl& texture = m_textures[_handle.idx];
+
+			const bimg::TextureFormat::Enum format = bimg::TextureFormat::Enum(texture.m_textureFormat);
+			BX_ASSERT(texture.m_textureFormat == texture.m_requestedFormat && !bimg::isCompressed(format)
+				, "copyNativeBufferToTexture: texture format %s must be uncompressed and natively supported."
+				, bimg::getName(format)
+				);
+
+			const uint32_t mipWidth  = bx::max(1u, texture.m_width  >> _mip);
+			const uint32_t mipHeight = bx::max(1u, texture.m_height >> _mip);
+			const uint32_t mipDepth  = bx::max(1u, texture.m_depth  >> _mip);
+			const uint32_t width  = bx::min<uint32_t>(_rect.m_width,  mipWidth  - _rect.m_x);
+			const uint32_t height = bx::min<uint32_t>(_rect.m_height, mipHeight - _rect.m_y);
+			const uint32_t depth  = bx::min<uint32_t>(_depth,         mipDepth  - _z);
+
+			MTL::Buffer* buffer = (MTL::Buffer*)uintptr_t(_nativeBuffer);
+
+			getBlitCommandEncoder()->copyFromBuffer(
+				  buffer
+				, NS::UInteger(_offset)
+				, _pitch
+				, 0 == _slicePitch ? _pitch * height : _slicePitch
+				, MTL::Size::Make(width, height, depth)
+				, texture.m_ptr
+				, 0
+				, _mip
+				, MTL::Origin::Make(_rect.m_x, _rect.m_y, _z)
+				);
+
+			if (NULL != _releaseFn)
+			{
+				// Called once the command buffer of this frame completed.
+				m_cmd.release(_releaseFn, buffer, _userData);
+			}
+		}
+
 		static MTL::PixelFormat getSwapChainPixelFormat(SwapChainMtl* _swapChain)
 		{
 			return NULL != _swapChain
@@ -5735,6 +5775,13 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
 
 			m_release.clear();
 
+			for (const ReleaseCallback& callback : m_releaseCallbacks)
+			{
+				callback.m_releaseFn(callback.m_ptr, callback.m_userData);
+			}
+
+			m_releaseCallbacks.clear();
+
 			MTL_RELEASE(m_commandQueue, 0);
 
 			pool->release();
@@ -5834,6 +5881,11 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
 		m_release.push_back({ _ptr, m_submittedFrames });
 	}
 
+	void CommandQueueMtl::release(ReleaseFn _releaseFn, void* _ptr, void* _userData)
+	{
+		m_releaseCallbacks.push_back({ _releaseFn, _ptr, _userData, m_submittedFrames });
+	}
+
 	void CommandQueueMtl::consume()
 	{
 		m_framesSemaphore.wait();
@@ -5848,6 +5900,15 @@ static_assert(BX_COUNTOF(s_accessNames) == Access::Count, "Invalid s_accessNames
 		}
 
 		m_release.erase(m_release.begin(), it);
+
+		ReleaseCallbackArray::iterator cb = m_releaseCallbacks.begin();
+
+		for (ReleaseCallbackArray::iterator cbEnd = m_releaseCallbacks.end(); cb != cbEnd && 0 < int32_t(completedFrames - cb->m_frame); ++cb)
+		{
+			cb->m_releaseFn(cb->m_ptr, cb->m_userData);
+		}
+
+		m_releaseCallbacks.erase(m_releaseCallbacks.begin(), cb);
 	}
 
 	static constexpr uint64_t kNanosecondsPerSecond = UINT64_C(1000000000);

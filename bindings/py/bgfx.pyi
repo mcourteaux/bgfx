@@ -2457,13 +2457,14 @@ def bgfx_update_texture_3d(
 # Copy a region of a native GPU buffer into a 2D texture, on the GPU: no
 # round trip through host memory. For texture data produced in device memory
 # by another API, e.g. CUDA or OpenCL writing into memory exported by bgfx's
-# Vulkan device (see `InternalData::Vulkan`).
+# Vulkan device (see `InternalData::Vulkan`), or a compute API using bgfx's
+# Metal device (`InternalData::context`).
 # 
 # The copy is ordered with the other texture updates of the frame. The
 # producer must have finished writing the buffer (e.g. waited for its stream
 # or queue) before this call.
 # 
-# @attention Vulkan renderer only; elsewhere nothing is copied and `_releaseFn`
+# @attention Vulkan and Metal renderers only; elsewhere nothing is copied and `_releaseFn`
 #   is called right away. The texture format must be uncompressed and natively
 #   supported (no conversion by bgfx).
 # 
@@ -2486,7 +2487,7 @@ def bgfx_copy_native_buffer_to_texture_2d(
 # Copy a box of a native GPU buffer into a 3D texture, on the GPU. Like
 # `bgfx::copyNativeBufferToTexture2D`, with slices.
 # 
-# @attention Vulkan renderer only; elsewhere nothing is copied and `_releaseFn`
+# @attention Vulkan and Metal renderers only; elsewhere nothing is copied and `_releaseFn`
 #   is called right away. The texture format must be uncompressed and natively
 #   supported (no conversion by bgfx).
 # 

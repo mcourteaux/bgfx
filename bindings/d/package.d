@@ -3406,13 +3406,14 @@ mixin(joinFnBinds((){
 		* Copy a region of a native GPU buffer into a 2D texture, on the GPU: no
 		* round trip through host memory. For texture data produced in device memory
 		* by another API, e.g. CUDA or OpenCL writing into memory exported by bgfx's
-		* Vulkan device (see `InternalData::Vulkan`).
+		* Vulkan device (see `InternalData::Vulkan`), or a compute API using bgfx's
+		* Metal device (`InternalData::context`).
 		* 
 		* The copy is ordered with the other texture updates of the frame. The
 		* producer must have finished writing the buffer (e.g. waited for its stream
 		* or queue) before this call.
 		* 
-		* Attention: Vulkan renderer only; elsewhere nothing is copied and `_releaseFn`
+		* Attention: Vulkan and Metal renderers only; elsewhere nothing is copied and `_releaseFn`
 		*   is called right away. The texture format must be uncompressed and natively
 		*   supported (no conversion by bgfx).
 		* 
@@ -3423,8 +3424,9 @@ mixin(joinFnBinds((){
 			y = Y offset in texture.
 			width = Width of texture block.
 			height = Height of texture block.
-			nativeBuffer = `VkBuffer` created on bgfx's device (the `VkDevice` in
+			nativeBuffer = Vulkan: `VkBuffer` created on bgfx's device (the `VkDevice` in
 		  `InternalData::context`) with `VK_BUFFER_USAGE_TRANSFER_SRC_BIT`.
+		  Metal: `id<MTLBuffer>` of bgfx's device (`InternalData::context`).
 			offset = Byte offset of the block's first texel in the buffer;
 		  multiple of the texel size.
 			pitch = Bytes between rows in the buffer; multiple of the texel size.
@@ -3442,7 +3444,7 @@ mixin(joinFnBinds((){
 		* Copy a box of a native GPU buffer into a 3D texture, on the GPU. Like
 		* `bgfx::copyNativeBufferToTexture2D`, with slices.
 		* 
-		* Attention: Vulkan renderer only; elsewhere nothing is copied and `_releaseFn`
+		* Attention: Vulkan and Metal renderers only; elsewhere nothing is copied and `_releaseFn`
 		*   is called right away. The texture format must be uncompressed and natively
 		*   supported (no conversion by bgfx).
 		* 
@@ -3455,7 +3457,7 @@ mixin(joinFnBinds((){
 			width = Width of texture block.
 			height = Height of texture block.
 			depth = Depth of texture block.
-			nativeBuffer = `VkBuffer` created on bgfx's device.
+			nativeBuffer = Vulkan: `VkBuffer` created on bgfx's device. Metal: `id<MTLBuffer>`.
 			offset = Byte offset of the block's first texel in the buffer;
 		  multiple of the texel size.
 			pitch = Bytes between rows in the buffer; multiple of the texel size.
