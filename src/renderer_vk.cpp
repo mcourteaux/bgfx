@@ -412,8 +412,10 @@ VK_IMPORT_DEVICE
 			KHR_wayland_surface,
 			KHR_xlib_surface,
 			KHR_xcb_surface,
+			KHR_external_memory_fd,
 #	elif BX_PLATFORM_WINDOWS
 			KHR_win32_surface,
+			KHR_external_memory_win32,
 #	elif BX_PLATFORM_OSX
 			MVK_macos_surface,
 #	elif BX_PLATFORM_NX
@@ -464,8 +466,10 @@ VK_IMPORT_DEVICE
 		{ VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME,    1, false, false, true,                                                          Layer::Count },
 		{ VK_KHR_XLIB_SURFACE_EXTENSION_NAME,       1, false, false, true,                                                          Layer::Count },
 		{ VK_KHR_XCB_SURFACE_EXTENSION_NAME,        1, false, false, true,                                                          Layer::Count },
+		{ "VK_KHR_external_memory_fd",              1, false, false, true,                                                          Layer::Count },
 #	elif BX_PLATFORM_WINDOWS
 		{ VK_KHR_WIN32_SURFACE_EXTENSION_NAME,      1, false, false, true,                                                          Layer::Count },
+		{ "VK_KHR_external_memory_win32",           1, false, false, true,                                                          Layer::Count },
 #	elif BX_PLATFORM_OSX
 		{ VK_MVK_MACOS_SURFACE_EXTENSION_NAME,      1, false, false, true,                                                          Layer::Count },
 #	elif BX_PLATFORM_NX
@@ -2740,6 +2744,15 @@ VK_IMPORT_DEVICE
 			}
 
 			g_internalData.context = m_device;
+			g_internalData.vulkan.instance       = m_instance;
+			g_internalData.vulkan.physicalDevice = m_physicalDevice;
+			g_internalData.vulkan.externalMemory = false
+#	if BX_PLATFORM_LINUX
+				|| s_extension[Extension::KHR_external_memory_fd].m_supported
+#	elif BX_PLATFORM_WINDOWS
+				|| s_extension[Extension::KHR_external_memory_win32].m_supported
+#	endif
+				;
 			return true;
 
 		error:
@@ -2806,6 +2819,8 @@ VK_IMPORT_DEVICE
 
 		void shutdown()
 		{
+			bx::memSet(&g_internalData.vulkan, 0, sizeof(g_internalData.vulkan) );
+
 			VK_CHECK(vkDeviceWaitIdle(m_device) );
 
 			if (m_timerQuerySupport)
@@ -3037,6 +3052,21 @@ VK_IMPORT_DEVICE
 		void clearTexture(TextureHandle _handle, uint8_t _mip, uint8_t _numMips, uint16_t _layer, uint16_t _numLayers) override
 		{
 			m_textures[_handle.idx].clear(m_commandBuffer, _mip, _numMips, _layer, _numLayers);
+		}
+
+		void copyNativeBufferToTexture(TextureHandle _handle, uint8_t _mip, const Rect& _rect, uint16_t _z, uint16_t _depth, uint64_t _nativeBuffer, uint64_t _offset, uint32_t _pitch, uint32_t _slicePitch, bool _externalMemory, ReleaseFn _releaseFn, void* _userData) override
+		{
+			VkBuffer buffer;
+			static_assert(sizeof(buffer) == sizeof(_nativeBuffer) );
+			bx::memCopy(&buffer, &_nativeBuffer, sizeof(buffer) );
+
+			m_textures[_handle.idx].copyFromNativeBuffer(m_commandBuffer, _mip, _rect, _z, _depth, buffer, _offset, _pitch, _slicePitch, _externalMemory);
+
+			if (NULL != _releaseFn)
+			{
+				// Called once the fence of this frame's submission passed.
+				m_cmd.release(_releaseFn, (void*)uintptr_t(_nativeBuffer), _userData);
+			}
 		}
 
 		void readTexture(TextureHandle _handle, void* _data, uint16_t _layer, uint8_t _mip) override
@@ -8904,6 +8934,99 @@ VK_DESTROY
 		setState(_commandBuffer, oldLayout);
 	}
 
+	void TextureVK::copyFromNativeBuffer(VkCommandBuffer _commandBuffer, uint8_t _mip, const Rect& _rect, uint16_t _z, uint16_t _depth, VkBuffer _buffer, uint64_t _offset, uint32_t _pitch, uint32_t _slicePitch, bool _externalMemory)
+	{
+		BGFX_PROFILER_SCOPE("TextureVK::copyFromNativeBuffer", kColorResource);
+
+		const bimg::TextureFormat::Enum format = bimg::TextureFormat::Enum(m_textureFormat);
+		BX_ASSERT(m_textureFormat == m_requestedFormat && !bimg::isCompressed(format)
+			, "copyNativeBufferToTexture: texture format %s must be uncompressed and natively supported (requested %s)."
+			, bimg::getName(format)
+			, bimg::getName(bimg::TextureFormat::Enum(m_requestedFormat) )
+			);
+
+		const uint32_t bytesPerTexel = bimg::getBitsPerPixel(format) / 8;
+		BX_ASSERT(0 == _pitch % bytesPerTexel && 0 == _offset % bytesPerTexel
+			, "copyNativeBufferToTexture: pitch %u and offset %u must be multiples of the texel size %u."
+			, _pitch
+			, uint32_t(_offset)
+			, bytesPerTexel
+			);
+
+		const uint32_t mipWidth  = bx::max(1u, m_width  >> _mip);
+		const uint32_t mipHeight = bx::max(1u, m_height >> _mip);
+		const uint32_t mipDepth  = bx::max(1u, m_depth  >> _mip);
+		const uint32_t width  = bx::min<uint32_t>(_rect.m_width,  mipWidth  - _rect.m_x);
+		const uint32_t height = bx::min<uint32_t>(_rect.m_height, mipHeight - _rect.m_y);
+		const uint32_t depth  = bx::min<uint32_t>(_depth,         mipDepth  - _z);
+
+		const uint32_t globalQueueFamily = s_renderVK->m_globalQueueFamily;
+
+		// Make the producer's writes visible to the transfer. Memory written by
+		// another API through external memory is first acquired from
+		// VK_QUEUE_FAMILY_EXTERNAL.
+		VkBufferMemoryBarrier acquire =
+		{
+			.sType               = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+			.pNext               = NULL,
+			.srcAccessMask       = _externalMemory ? VkAccessFlags(0) : VkAccessFlags(VK_ACCESS_MEMORY_WRITE_BIT),
+			.dstAccessMask       = VK_ACCESS_TRANSFER_READ_BIT,
+			.srcQueueFamilyIndex = _externalMemory ? VK_QUEUE_FAMILY_EXTERNAL : VK_QUEUE_FAMILY_IGNORED,
+			.dstQueueFamilyIndex = _externalMemory ? globalQueueFamily        : VK_QUEUE_FAMILY_IGNORED,
+			.buffer              = _buffer,
+			.offset              = _offset,
+			.size                = VK_WHOLE_SIZE,
+		};
+
+		vkCmdPipelineBarrier(
+			  _commandBuffer
+			, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT
+			, VK_PIPELINE_STAGE_TRANSFER_BIT
+			, 0
+			, 0, NULL
+			, 1, &acquire
+			, 0, NULL
+			);
+
+		VkBufferImageCopy region =
+		{
+			.bufferOffset      = _offset,
+			.bufferRowLength   = _pitch / bytesPerTexel,
+			.bufferImageHeight = 0 == _slicePitch ? 0 : _slicePitch / _pitch, // In rows.
+			.imageSubresource =
+			{
+				.aspectMask     = m_aspectFlags,
+				.mipLevel       = _mip,
+				.baseArrayLayer = 0,
+				.layerCount     = 1,
+			},
+			.imageOffset = { .x = _rect.m_x, .y = _rect.m_y, .z = int32_t(_z) },
+			.imageExtent = { .width = width, .height = height, .depth = depth },
+		};
+
+		copyBufferToTexture(_commandBuffer, _buffer, 1, &region);
+
+		if (_externalMemory)
+		{
+			// Hand the memory back, so the other API may write it again.
+			VkBufferMemoryBarrier release = acquire;
+			release.srcAccessMask       = VK_ACCESS_TRANSFER_READ_BIT;
+			release.dstAccessMask       = 0;
+			release.srcQueueFamilyIndex = globalQueueFamily;
+			release.dstQueueFamilyIndex = VK_QUEUE_FAMILY_EXTERNAL;
+
+			vkCmdPipelineBarrier(
+				  _commandBuffer
+				, VK_PIPELINE_STAGE_TRANSFER_BIT
+				, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT
+				, 0
+				, 0, NULL
+				, 1, &release
+				, 0, NULL
+				);
+		}
+	}
+
 	void TextureVK::setState(VkCommandBuffer _commandBuffer, VkImageLayout _newImageLayout, bool _singleMsaaImage)
 	{
 		if (_singleMsaaImage
@@ -11078,6 +11201,11 @@ VK_DESTROY
 		m_release[m_currentFrameInFlight].push_back(resource);
 	}
 
+	void CommandQueueVK::release(ReleaseFn _releaseFn, void* _ptr, void* _userData)
+	{
+		m_releaseCallbacks[m_currentFrameInFlight].push_back({ _releaseFn, _ptr, _userData });
+	}
+
 	void CommandQueueVK::recycleMemory(DeviceMemoryAllocationVK _mem)
 	{
 		m_recycleAllocs[m_currentFrameInFlight].push_back(_mem);
@@ -11122,6 +11250,13 @@ VK_DESTROY
 		}
 
 		m_release[m_consumeIndex].clear();
+
+		for (const ReleaseCallback& callback : m_releaseCallbacks[m_consumeIndex])
+		{
+			callback.m_releaseFn(callback.m_ptr, callback.m_userData);
+		}
+
+		m_releaseCallbacks[m_consumeIndex].clear();
 	}
 
 	void CommandQueueVK::addExternal(TextureHandle _handle)

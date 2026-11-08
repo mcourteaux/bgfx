@@ -538,6 +538,18 @@ BGFX_C_API void bgfx_update_texture_3d(bgfx_texture_handle_t _handle, uint8_t _m
 	bgfx::updateTexture3D(handle.cpp, _mip, _x, _y, _z, _width, _height, _depth, (const bgfx::Memory*)_mem);
 }
 
+BGFX_C_API void bgfx_copy_native_buffer_to_texture_2d(bgfx_texture_handle_t _handle, uint8_t _mip, uint16_t _x, uint16_t _y, uint16_t _width, uint16_t _height, uint64_t _nativeBuffer, uint64_t _offset, uint32_t _pitch, bool _externalMemory, bgfx_release_fn_t _releaseFn, void* _userData)
+{
+	union { bgfx_texture_handle_t c; bgfx::TextureHandle cpp; } handle = { _handle };
+	bgfx::copyNativeBufferToTexture2D(handle.cpp, _mip, _x, _y, _width, _height, _nativeBuffer, _offset, _pitch, _externalMemory, (bgfx::ReleaseFn)_releaseFn, _userData);
+}
+
+BGFX_C_API void bgfx_copy_native_buffer_to_texture_3d(bgfx_texture_handle_t _handle, uint8_t _mip, uint16_t _x, uint16_t _y, uint16_t _z, uint16_t _width, uint16_t _height, uint16_t _depth, uint64_t _nativeBuffer, uint64_t _offset, uint32_t _pitch, uint32_t _slicePitch, bool _externalMemory, bgfx_release_fn_t _releaseFn, void* _userData)
+{
+	union { bgfx_texture_handle_t c; bgfx::TextureHandle cpp; } handle = { _handle };
+	bgfx::copyNativeBufferToTexture3D(handle.cpp, _mip, _x, _y, _z, _width, _height, _depth, _nativeBuffer, _offset, _pitch, _slicePitch, _externalMemory, (bgfx::ReleaseFn)_releaseFn, _userData);
+}
+
 BGFX_C_API void bgfx_update_texture_cube(bgfx_texture_handle_t _handle, uint16_t _layer, uint8_t _side, uint8_t _mip, uint16_t _x, uint16_t _y, uint16_t _width, uint16_t _height, const bgfx_memory_t* _mem, uint16_t _pitch)
 {
 	union { bgfx_texture_handle_t c; bgfx::TextureHandle cpp; } handle = { _handle };
@@ -1555,6 +1567,8 @@ BGFX_C_API bgfx_interface_vtbl_t* bgfx_get_interface(uint32_t _version)
 			bgfx_create_texture_cube,
 			bgfx_update_texture_2d,
 			bgfx_update_texture_3d,
+			bgfx_copy_native_buffer_to_texture_2d,
+			bgfx_copy_native_buffer_to_texture_3d,
 			bgfx_update_texture_cube,
 			bgfx_clear_texture,
 			bgfx_read_texture,

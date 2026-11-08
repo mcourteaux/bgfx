@@ -771,12 +771,28 @@ typedef struct bgfx_caps_s
 
 /**
  * Internal data.
+ * Vulkan objects of the renderer, for interop with other APIs (e.g. CUDA or
+ * OpenCL importing memory exported by bgfx's device).
  *
  */
+typedef struct bgfx_internal_data_vulkan_s
+{
+    void*                instance;           /** `VkInstance`.                            */
+    void*                physicalDevice;     /** `VkPhysicalDevice`.                      */
+    
+    /**
+     * `VK_KHR_external_memory_fd` (`_win32` on Windows) is enabled:
+     *   memory allocated on the device can be exported to other APIs.
+     */
+    bool                 externalMemory;
+
+} bgfx_internal_data_vulkan_t;
+
 typedef struct bgfx_internal_data_s
 {
     const bgfx_caps_t*   caps;               /** Renderer capabilities.                   */
-    void*                context;            /** GL context, or D3D device.               */
+    void*                context;            /** GL context, or the D3D11, D3D12, Metal or Vulkan device. */
+    bgfx_internal_data_vulkan_t vulkan;      /** Valid when the renderer is Vulkan; zeroed otherwise. */
 
 } bgfx_internal_data_t;
 
@@ -2481,6 +2497,70 @@ BGFX_C_API void bgfx_update_texture_2d(bgfx_texture_handle_t _handle, uint16_t _
  *
  */
 BGFX_C_API void bgfx_update_texture_3d(bgfx_texture_handle_t _handle, uint8_t _mip, uint16_t _x, uint16_t _y, uint16_t _z, uint16_t _width, uint16_t _height, uint16_t _depth, const bgfx_memory_t* _mem);
+
+/**
+ * Copy a region of a native GPU buffer into a 2D texture, on the GPU: no
+ * round trip through host memory. For texture data produced in device memory
+ * by another API, e.g. CUDA or OpenCL writing into memory exported by bgfx's
+ * Vulkan device (see `InternalData::Vulkan`).
+ *
+ * The copy is ordered with the other texture updates of the frame. The
+ * producer must have finished writing the buffer (e.g. waited for its stream
+ * or queue) before this call.
+ *
+ * @attention Vulkan renderer only; elsewhere nothing is copied and `_releaseFn`
+ *   is called right away. The texture format must be uncompressed and natively
+ *   supported (no conversion by bgfx).
+ *
+ * @param[in] _handle Texture handle.
+ * @param[in] _mip Mip level.
+ * @param[in] _x X offset in texture.
+ * @param[in] _y Y offset in texture.
+ * @param[in] _width Width of texture block.
+ * @param[in] _height Height of texture block.
+ * @param[in] _nativeBuffer `VkBuffer` created on bgfx's device (the `VkDevice` in
+ *    `InternalData::context`) with `VK_BUFFER_USAGE_TRANSFER_SRC_BIT`.
+ * @param[in] _offset Byte offset of the block's first texel in the buffer;
+ *    multiple of the texel size.
+ * @param[in] _pitch Bytes between rows in the buffer; multiple of the texel size.
+ * @param[in] _externalMemory The buffer's memory is written by another API (external
+ *    memory): ownership is acquired from and released back to
+ *    `VK_QUEUE_FAMILY_EXTERNAL` around the copy.
+ * @param[in] _releaseFn Called with `_userData` once the GPU has finished the copy,
+ *    so the buffer may be reused or freed (on the render
+ *    thread). `_ptr` is the native buffer.
+ * @param[in] _userData User data passed to `_releaseFn`.
+ *
+ */
+BGFX_C_API void bgfx_copy_native_buffer_to_texture_2d(bgfx_texture_handle_t _handle, uint8_t _mip, uint16_t _x, uint16_t _y, uint16_t _width, uint16_t _height, uint64_t _nativeBuffer, uint64_t _offset, uint32_t _pitch, bool _externalMemory, bgfx_release_fn_t _releaseFn, void* _userData);
+
+/**
+ * Copy a box of a native GPU buffer into a 3D texture, on the GPU. Like
+ * `bgfx::copyNativeBufferToTexture2D`, with slices.
+ *
+ * @attention Vulkan renderer only; elsewhere nothing is copied and `_releaseFn`
+ *   is called right away. The texture format must be uncompressed and natively
+ *   supported (no conversion by bgfx).
+ *
+ * @param[in] _handle Texture handle.
+ * @param[in] _mip Mip level.
+ * @param[in] _x X offset in texture.
+ * @param[in] _y Y offset in texture.
+ * @param[in] _z Z offset in texture.
+ * @param[in] _width Width of texture block.
+ * @param[in] _height Height of texture block.
+ * @param[in] _depth Depth of texture block.
+ * @param[in] _nativeBuffer `VkBuffer` created on bgfx's device.
+ * @param[in] _offset Byte offset of the block's first texel in the buffer;
+ *    multiple of the texel size.
+ * @param[in] _pitch Bytes between rows in the buffer; multiple of the texel size.
+ * @param[in] _slicePitch Bytes between slices in the buffer; multiple of `_pitch`.
+ * @param[in] _externalMemory See `bgfx::copyNativeBufferToTexture2D`.
+ * @param[in] _releaseFn See `bgfx::copyNativeBufferToTexture2D`.
+ * @param[in] _userData User data passed to `_releaseFn`.
+ *
+ */
+BGFX_C_API void bgfx_copy_native_buffer_to_texture_3d(bgfx_texture_handle_t _handle, uint8_t _mip, uint16_t _x, uint16_t _y, uint16_t _z, uint16_t _width, uint16_t _height, uint16_t _depth, uint64_t _nativeBuffer, uint64_t _offset, uint32_t _pitch, uint32_t _slicePitch, bool _externalMemory, bgfx_release_fn_t _releaseFn, void* _userData);
 
 /**
  * Update Cube texture.
@@ -4619,6 +4699,8 @@ typedef enum bgfx_function_id
     BGFX_FUNCTION_ID_CREATE_TEXTURE_CUBE,
     BGFX_FUNCTION_ID_UPDATE_TEXTURE_2D,
     BGFX_FUNCTION_ID_UPDATE_TEXTURE_3D,
+    BGFX_FUNCTION_ID_COPY_NATIVE_BUFFER_TO_TEXTURE_2D,
+    BGFX_FUNCTION_ID_COPY_NATIVE_BUFFER_TO_TEXTURE_3D,
     BGFX_FUNCTION_ID_UPDATE_TEXTURE_CUBE,
     BGFX_FUNCTION_ID_CLEAR_TEXTURE,
     BGFX_FUNCTION_ID_READ_TEXTURE,
@@ -4852,6 +4934,8 @@ struct bgfx_interface_vtbl
     bgfx_texture_handle_t (*create_texture_cube)(uint16_t _size, bool _hasMips, uint16_t _numLayers, bgfx_texture_format_t _format, uint64_t _flags, const bgfx_memory_t* _mem, uint64_t _external);
     void (*update_texture_2d)(bgfx_texture_handle_t _handle, uint16_t _layer, uint8_t _mip, uint16_t _x, uint16_t _y, uint16_t _width, uint16_t _height, const bgfx_memory_t* _mem, uint16_t _pitch);
     void (*update_texture_3d)(bgfx_texture_handle_t _handle, uint8_t _mip, uint16_t _x, uint16_t _y, uint16_t _z, uint16_t _width, uint16_t _height, uint16_t _depth, const bgfx_memory_t* _mem);
+    void (*copy_native_buffer_to_texture_2d)(bgfx_texture_handle_t _handle, uint8_t _mip, uint16_t _x, uint16_t _y, uint16_t _width, uint16_t _height, uint64_t _nativeBuffer, uint64_t _offset, uint32_t _pitch, bool _externalMemory, bgfx_release_fn_t _releaseFn, void* _userData);
+    void (*copy_native_buffer_to_texture_3d)(bgfx_texture_handle_t _handle, uint8_t _mip, uint16_t _x, uint16_t _y, uint16_t _z, uint16_t _width, uint16_t _height, uint16_t _depth, uint64_t _nativeBuffer, uint64_t _offset, uint32_t _pitch, uint32_t _slicePitch, bool _externalMemory, bgfx_release_fn_t _releaseFn, void* _userData);
     void (*update_texture_cube)(bgfx_texture_handle_t _handle, uint16_t _layer, uint8_t _side, uint8_t _mip, uint16_t _x, uint16_t _y, uint16_t _width, uint16_t _height, const bgfx_memory_t* _mem, uint16_t _pitch);
     void (*clear_texture)(bgfx_texture_handle_t _handle, uint8_t _mip, uint8_t _numMips, uint16_t _layer, uint16_t _numLayers);
     uint32_t (*read_texture)(const bgfx_texture_region_t * _src, void* _data);

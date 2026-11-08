@@ -2690,8 +2690,16 @@ public static partial class bgfx
 	
 	public unsafe struct InternalData
 	{
+		public unsafe struct Vulkan
+		{
+			public void* instance;
+			public void* physicalDevice;
+			public byte externalMemory;
+		}
+	
 		public Caps* caps;
 		public void* context;
+		public Vulkan vulkan;
 	}
 	
 	public unsafe struct PlatformData
@@ -3970,6 +3978,67 @@ public static partial class bgfx
 	///
 	[DllImport(DllName, EntryPoint="bgfx_update_texture_3d", CallingConvention = CallingConvention.Cdecl)]
 	public static extern unsafe void update_texture_3d(TextureHandle _handle, byte _mip, ushort _x, ushort _y, ushort _z, ushort _width, ushort _height, ushort _depth, Memory* _mem);
+	
+	/// <summary>
+	/// Copy a region of a native GPU buffer into a 2D texture, on the GPU: no
+	/// round trip through host memory. For texture data produced in device memory
+	/// by another API, e.g. CUDA or OpenCL writing into memory exported by bgfx's
+	/// Vulkan device (see `InternalData::Vulkan`).
+	/// 
+	/// The copy is ordered with the other texture updates of the frame. The
+	/// producer must have finished writing the buffer (e.g. waited for its stream
+	/// or queue) before this call.
+	/// 
+	/// @attention Vulkan renderer only; elsewhere nothing is copied and `_releaseFn`
+	///   is called right away. The texture format must be uncompressed and natively
+	///   supported (no conversion by bgfx).
+	/// 
+	/// </summary>
+	///
+	/// <param name="_handle">Texture handle.</param>
+	/// <param name="_mip">Mip level.</param>
+	/// <param name="_x">X offset in texture.</param>
+	/// <param name="_y">Y offset in texture.</param>
+	/// <param name="_width">Width of texture block.</param>
+	/// <param name="_height">Height of texture block.</param>
+	/// <param name="_nativeBuffer">`VkBuffer` created on bgfx's device (the `VkDevice` in   `InternalData::context`) with `VK_BUFFER_USAGE_TRANSFER_SRC_BIT`.</param>
+	/// <param name="_offset">Byte offset of the block's first texel in the buffer;   multiple of the texel size.</param>
+	/// <param name="_pitch">Bytes between rows in the buffer; multiple of the texel size.</param>
+	/// <param name="_externalMemory">The buffer's memory is written by another API (external   memory): ownership is acquired from and released back to   `VK_QUEUE_FAMILY_EXTERNAL` around the copy.</param>
+	/// <param name="_releaseFn">Called with `_userData` once the GPU has finished the copy,   so the buffer may be reused or freed (on the render   thread). `_ptr` is the native buffer.</param>
+	/// <param name="_userData">User data passed to `_releaseFn`.</param>
+	///
+	[DllImport(DllName, EntryPoint="bgfx_copy_native_buffer_to_texture_2d", CallingConvention = CallingConvention.Cdecl)]
+	public static extern unsafe void copy_native_buffer_to_texture_2d(TextureHandle _handle, byte _mip, ushort _x, ushort _y, ushort _width, ushort _height, ulong _nativeBuffer, ulong _offset, uint _pitch, bool _externalMemory, IntPtr _releaseFn, void* _userData);
+	
+	/// <summary>
+	/// Copy a box of a native GPU buffer into a 3D texture, on the GPU. Like
+	/// `bgfx::copyNativeBufferToTexture2D`, with slices.
+	/// 
+	/// @attention Vulkan renderer only; elsewhere nothing is copied and `_releaseFn`
+	///   is called right away. The texture format must be uncompressed and natively
+	///   supported (no conversion by bgfx).
+	/// 
+	/// </summary>
+	///
+	/// <param name="_handle">Texture handle.</param>
+	/// <param name="_mip">Mip level.</param>
+	/// <param name="_x">X offset in texture.</param>
+	/// <param name="_y">Y offset in texture.</param>
+	/// <param name="_z">Z offset in texture.</param>
+	/// <param name="_width">Width of texture block.</param>
+	/// <param name="_height">Height of texture block.</param>
+	/// <param name="_depth">Depth of texture block.</param>
+	/// <param name="_nativeBuffer">`VkBuffer` created on bgfx's device.</param>
+	/// <param name="_offset">Byte offset of the block's first texel in the buffer;   multiple of the texel size.</param>
+	/// <param name="_pitch">Bytes between rows in the buffer; multiple of the texel size.</param>
+	/// <param name="_slicePitch">Bytes between slices in the buffer; multiple of `_pitch`.</param>
+	/// <param name="_externalMemory">See `bgfx::copyNativeBufferToTexture2D`.</param>
+	/// <param name="_releaseFn">See `bgfx::copyNativeBufferToTexture2D`.</param>
+	/// <param name="_userData">User data passed to `_releaseFn`.</param>
+	///
+	[DllImport(DllName, EntryPoint="bgfx_copy_native_buffer_to_texture_3d", CallingConvention = CallingConvention.Cdecl)]
+	public static extern unsafe void copy_native_buffer_to_texture_3d(TextureHandle _handle, byte _mip, ushort _x, ushort _y, ushort _z, ushort _width, ushort _height, ushort _depth, ulong _nativeBuffer, ulong _offset, uint _pitch, uint _slicePitch, bool _externalMemory, IntPtr _releaseFn, void* _userData);
 	
 	/// <summary>
 	/// Update Cube texture.

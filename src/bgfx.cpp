@@ -4303,6 +4303,53 @@ namespace bgfx
 				}
 				break;
 
+			case CommandBuffer::CopyNativeBufferToTexture:
+				{
+					BGFX_PROFILER_SCOPE("CopyNativeBufferToTexture", kColorResource);
+
+					TextureHandle handle;
+					_cmdbuf.read(handle);
+
+					uint8_t mip;
+					_cmdbuf.read(mip);
+
+					Rect rect;
+					_cmdbuf.read(rect);
+
+					uint16_t z;
+					_cmdbuf.read(z);
+
+					uint16_t depth;
+					_cmdbuf.read(depth);
+
+					uint64_t nativeBuffer;
+					_cmdbuf.read(nativeBuffer);
+
+					uint64_t offset;
+					_cmdbuf.read(offset);
+
+					uint32_t pitch;
+					_cmdbuf.read(pitch);
+
+					uint32_t slicePitch;
+					_cmdbuf.read(slicePitch);
+
+					bool externalMemory;
+					_cmdbuf.read(externalMemory);
+
+					ReleaseFn releaseFn;
+					_cmdbuf.read(releaseFn);
+
+					void* userData;
+					_cmdbuf.read(userData);
+
+					// Ordered with the batched texture updates issued before it.
+					flushTextureUpdateBatch(_cmdbuf);
+
+					m_renderCtx->copyNativeBufferToTexture(handle, mip, rect, z, depth, nativeBuffer, offset, pitch, slicePitch, externalMemory, releaseFn, userData);
+				}
+				break;
+
 			case CommandBuffer::ClearTexture:
 				{
 					BGFX_PROFILER_SCOPE("ClearTexture", kColorResource);
@@ -6969,6 +7016,41 @@ namespace bgfx
 		{
 			s_ctx->updateTexture(_handle, 0, _mip, _x, _y, _layer, _width, _height, 1, _pitch, _mem);
 		}
+	}
+
+	static void copyNativeBufferToTexture(TextureHandle _handle, uint8_t _mip, uint16_t _x, uint16_t _y, uint16_t _z, uint16_t _width, uint16_t _height, uint16_t _depth, uint64_t _nativeBuffer, uint64_t _offset, uint32_t _pitch, uint32_t _slicePitch, bool _externalMemory, ReleaseFn _releaseFn, void* _userData)
+	{
+		BGFX_CHECK_HANDLE("copyNativeBufferToTexture", s_ctx->m_textureHandle, _handle);
+		BX_ASSERT(0 != _nativeBuffer, "_nativeBuffer can't be 0");
+		BX_ASSERT(0 == _slicePitch || (0 != _pitch && 0 == _slicePitch % _pitch)
+			, "copyNativeBufferToTexture3D: slice pitch %u must be a multiple of the pitch %u."
+			, _slicePitch
+			, _pitch
+			);
+
+		if (0 == _width
+		||  0 == _height
+		||  0 == _depth)
+		{
+			if (NULL != _releaseFn)
+			{
+				_releaseFn( (void*)uintptr_t(_nativeBuffer), _userData);
+			}
+		}
+		else
+		{
+			s_ctx->copyNativeBufferToTexture(_handle, _mip, _x, _y, _z, _width, _height, _depth, _nativeBuffer, _offset, _pitch, _slicePitch, _externalMemory, _releaseFn, _userData);
+		}
+	}
+
+	void copyNativeBufferToTexture2D(TextureHandle _handle, uint8_t _mip, uint16_t _x, uint16_t _y, uint16_t _width, uint16_t _height, uint64_t _nativeBuffer, uint64_t _offset, uint32_t _pitch, bool _externalMemory, ReleaseFn _releaseFn, void* _userData)
+	{
+		copyNativeBufferToTexture(_handle, _mip, _x, _y, 0, _width, _height, 1, _nativeBuffer, _offset, _pitch, 0, _externalMemory, _releaseFn, _userData);
+	}
+
+	void copyNativeBufferToTexture3D(TextureHandle _handle, uint8_t _mip, uint16_t _x, uint16_t _y, uint16_t _z, uint16_t _width, uint16_t _height, uint16_t _depth, uint64_t _nativeBuffer, uint64_t _offset, uint32_t _pitch, uint32_t _slicePitch, bool _externalMemory, ReleaseFn _releaseFn, void* _userData)
+	{
+		copyNativeBufferToTexture(_handle, _mip, _x, _y, _z, _width, _height, _depth, _nativeBuffer, _offset, _pitch, _slicePitch, _externalMemory, _releaseFn, _userData);
 	}
 
 	void updateTexture3D(TextureHandle _handle, uint8_t _mip, uint16_t _x, uint16_t _y, uint16_t _z, uint16_t _width, uint16_t _height, uint16_t _depth, const Memory* _mem)

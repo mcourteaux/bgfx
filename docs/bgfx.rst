@@ -652,6 +652,8 @@ Textures
 .. doxygenfunction:: bgfx::createTextureCube
 .. doxygenfunction:: bgfx::updateTexture2D
 .. doxygenfunction:: bgfx::updateTexture3D
+.. doxygenfunction:: bgfx::copyNativeBufferToTexture2D
+.. doxygenfunction:: bgfx::copyNativeBufferToTexture3D
 .. doxygenfunction:: bgfx::updateTextureCube
 .. doxygenfunction:: bgfx::clear
 .. doxygenfunction:: bgfx::read(const TextureRegion & _src, void* _data)

@@ -675,6 +675,9 @@ class CapsLimits(ctypes.Structure):
 class Caps(ctypes.Structure):
 	pass
 
+class InternalDataVulkan(ctypes.Structure):
+	pass
+
 class InternalData(ctypes.Structure):
 	pass
 
@@ -889,9 +892,16 @@ Caps._fields_ = [
 	("codecs", (ctypes.c_uint32 * 3)),
 ]
 
+InternalDataVulkan._fields_ = [
+	("instance", ctypes.c_void_p),
+	("physicalDevice", ctypes.c_void_p),
+	("externalMemory", ctypes.c_bool),
+]
+
 InternalData._fields_ = [
 	("caps", ctypes.POINTER(Caps)),
 	("context", ctypes.c_void_p),
+	("vulkan", InternalDataVulkan),
 ]
 
 PlatformData._fields_ = [
@@ -1434,6 +1444,14 @@ def _bind(lib):
 	bgfx_update_texture_3d = lib.bgfx_update_texture_3d
 	bgfx_update_texture_3d.argtypes = [TextureHandle, ctypes.c_uint8, ctypes.c_uint16, ctypes.c_uint16, ctypes.c_uint16, ctypes.c_uint16, ctypes.c_uint16, ctypes.c_uint16, ctypes.POINTER(Memory)]
 	bgfx_update_texture_3d.restype = None
+	global bgfx_copy_native_buffer_to_texture_2d
+	bgfx_copy_native_buffer_to_texture_2d = lib.bgfx_copy_native_buffer_to_texture_2d
+	bgfx_copy_native_buffer_to_texture_2d.argtypes = [TextureHandle, ctypes.c_uint8, ctypes.c_uint16, ctypes.c_uint16, ctypes.c_uint16, ctypes.c_uint16, ctypes.c_uint64, ctypes.c_uint64, ctypes.c_uint32, ctypes.c_bool, ReleaseFn, ctypes.c_void_p]
+	bgfx_copy_native_buffer_to_texture_2d.restype = None
+	global bgfx_copy_native_buffer_to_texture_3d
+	bgfx_copy_native_buffer_to_texture_3d = lib.bgfx_copy_native_buffer_to_texture_3d
+	bgfx_copy_native_buffer_to_texture_3d.argtypes = [TextureHandle, ctypes.c_uint8, ctypes.c_uint16, ctypes.c_uint16, ctypes.c_uint16, ctypes.c_uint16, ctypes.c_uint16, ctypes.c_uint16, ctypes.c_uint64, ctypes.c_uint64, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_bool, ReleaseFn, ctypes.c_void_p]
+	bgfx_copy_native_buffer_to_texture_3d.restype = None
 	global bgfx_update_texture_cube
 	bgfx_update_texture_cube = lib.bgfx_update_texture_cube
 	bgfx_update_texture_cube.argtypes = [TextureHandle, ctypes.c_uint16, ctypes.c_uint8, ctypes.c_uint8, ctypes.c_uint16, ctypes.c_uint16, ctypes.c_uint16, ctypes.c_uint16, ctypes.POINTER(Memory), ctypes.c_uint16]

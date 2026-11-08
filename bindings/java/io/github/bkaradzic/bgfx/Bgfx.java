@@ -199,6 +199,10 @@ public final class Bgfx {
 		"bgfx_update_texture_2d", FunctionDescriptor.ofVoid(TextureHandle.LAYOUT, ValueLayout.JAVA_SHORT, ValueLayout.JAVA_BYTE, ValueLayout.JAVA_SHORT, ValueLayout.JAVA_SHORT, ValueLayout.JAVA_SHORT, ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT));
 	static final MethodHandle MH_UPDATE_TEXTURE_3D = downcall(
 		"bgfx_update_texture_3d", FunctionDescriptor.ofVoid(TextureHandle.LAYOUT, ValueLayout.JAVA_BYTE, ValueLayout.JAVA_SHORT, ValueLayout.JAVA_SHORT, ValueLayout.JAVA_SHORT, ValueLayout.JAVA_SHORT, ValueLayout.JAVA_SHORT, ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS));
+	static final MethodHandle MH_COPY_NATIVE_BUFFER_TO_TEXTURE_2D = downcall(
+		"bgfx_copy_native_buffer_to_texture_2d", FunctionDescriptor.ofVoid(TextureHandle.LAYOUT, ValueLayout.JAVA_BYTE, ValueLayout.JAVA_SHORT, ValueLayout.JAVA_SHORT, ValueLayout.JAVA_SHORT, ValueLayout.JAVA_SHORT, ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG, ValueLayout.JAVA_INT, ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+	static final MethodHandle MH_COPY_NATIVE_BUFFER_TO_TEXTURE_3D = downcall(
+		"bgfx_copy_native_buffer_to_texture_3d", FunctionDescriptor.ofVoid(TextureHandle.LAYOUT, ValueLayout.JAVA_BYTE, ValueLayout.JAVA_SHORT, ValueLayout.JAVA_SHORT, ValueLayout.JAVA_SHORT, ValueLayout.JAVA_SHORT, ValueLayout.JAVA_SHORT, ValueLayout.JAVA_SHORT, ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
 	static final MethodHandle MH_UPDATE_TEXTURE_CUBE = downcall(
 		"bgfx_update_texture_cube", FunctionDescriptor.ofVoid(TextureHandle.LAYOUT, ValueLayout.JAVA_SHORT, ValueLayout.JAVA_BYTE, ValueLayout.JAVA_BYTE, ValueLayout.JAVA_SHORT, ValueLayout.JAVA_SHORT, ValueLayout.JAVA_SHORT, ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT));
 	static final MethodHandle MH_CLEAR_TEXTURE = downcall(
@@ -1631,6 +1635,75 @@ public final class Bgfx {
 		try {
 			try (Arena arena = Arena.ofConfined()) {
 				MH_UPDATE_TEXTURE_3D.invokeExact(_handle.allocate(arena), _mip, _x, _y, _z, _width, _height, _depth, address(_mem));
+			}
+		} catch (Throwable ex) {
+			throw invocationFailure(ex);
+		}
+	}
+
+	/**
+	 * Copy a region of a native GPU buffer into a 2D texture, on the GPU: no
+	 * round trip through host memory. For texture data produced in device memory
+	 * by another API, e.g. CUDA or OpenCL writing into memory exported by bgfx's
+	 * Vulkan device (see {@code InternalData.Vulkan}).
+	 * <p>
+	 * The copy is ordered with the other texture updates of the frame. The
+	 * producer must have finished writing the buffer (e.g. waited for its stream
+	 * or queue) before this call.
+	 * <p>
+	 * <strong>Attention:</strong> Vulkan renderer only; elsewhere nothing is copied and {@code _releaseFn}
+	 *   is called right away. The texture format must be uncompressed and natively
+	 *   supported (no conversion by bgfx).
+	 * @param _handle Texture handle.
+	 * @param _mip Mip level.
+	 * @param _x X offset in texture.
+	 * @param _y Y offset in texture.
+	 * @param _width Width of texture block.
+	 * @param _height Height of texture block.
+	 * @param _nativeBuffer {@code VkBuffer} created on bgfx's device (the {@code VkDevice} in   {@code InternalData.context}) with {@code VK_BUFFER_USAGE_TRANSFER_SRC_BIT}.
+	 * @param _offset Byte offset of the block's first texel in the buffer;   multiple of the texel size.
+	 * @param _pitch Bytes between rows in the buffer; multiple of the texel size.
+	 * @param _externalMemory The buffer's memory is written by another API (external   memory): ownership is acquired from and released back to   {@code VK_QUEUE_FAMILY_EXTERNAL} around the copy.
+	 * @param _releaseFn Called with {@code _userData} once the GPU has finished the copy,   so the buffer may be reused or freed (on the render   thread). {@code _ptr} is the native buffer.
+	 * @param _userData User data passed to {@code _releaseFn}.
+	 */
+	public static void copyNativeBufferToTexture2D(TextureHandle _handle, @Unsigned byte _mip, @Unsigned short _x, @Unsigned short _y, @Unsigned short _width, @Unsigned short _height, @Unsigned long _nativeBuffer, @Unsigned long _offset, @Unsigned int _pitch, boolean _externalMemory, @Nullable MemorySegment _releaseFn, @Nullable MemorySegment _userData) {
+		try {
+			try (Arena arena = Arena.ofConfined()) {
+				MH_COPY_NATIVE_BUFFER_TO_TEXTURE_2D.invokeExact(_handle.allocate(arena), _mip, _x, _y, _width, _height, _nativeBuffer, _offset, _pitch, _externalMemory, address(_releaseFn), address(_userData));
+			}
+		} catch (Throwable ex) {
+			throw invocationFailure(ex);
+		}
+	}
+
+	/**
+	 * Copy a box of a native GPU buffer into a 3D texture, on the GPU. Like
+	 * {@code copyNativeBufferToTexture2D}, with slices.
+	 * <p>
+	 * <strong>Attention:</strong> Vulkan renderer only; elsewhere nothing is copied and {@code _releaseFn}
+	 *   is called right away. The texture format must be uncompressed and natively
+	 *   supported (no conversion by bgfx).
+	 * @param _handle Texture handle.
+	 * @param _mip Mip level.
+	 * @param _x X offset in texture.
+	 * @param _y Y offset in texture.
+	 * @param _z Z offset in texture.
+	 * @param _width Width of texture block.
+	 * @param _height Height of texture block.
+	 * @param _depth Depth of texture block.
+	 * @param _nativeBuffer {@code VkBuffer} created on bgfx's device.
+	 * @param _offset Byte offset of the block's first texel in the buffer;   multiple of the texel size.
+	 * @param _pitch Bytes between rows in the buffer; multiple of the texel size.
+	 * @param _slicePitch Bytes between slices in the buffer; multiple of {@code _pitch}.
+	 * @param _externalMemory See {@code copyNativeBufferToTexture2D}.
+	 * @param _releaseFn See {@code copyNativeBufferToTexture2D}.
+	 * @param _userData User data passed to {@code _releaseFn}.
+	 */
+	public static void copyNativeBufferToTexture3D(TextureHandle _handle, @Unsigned byte _mip, @Unsigned short _x, @Unsigned short _y, @Unsigned short _z, @Unsigned short _width, @Unsigned short _height, @Unsigned short _depth, @Unsigned long _nativeBuffer, @Unsigned long _offset, @Unsigned int _pitch, @Unsigned int _slicePitch, boolean _externalMemory, @Nullable MemorySegment _releaseFn, @Nullable MemorySegment _userData) {
+		try {
+			try (Arena arena = Arena.ofConfined()) {
+				MH_COPY_NATIVE_BUFFER_TO_TEXTURE_3D.invokeExact(_handle.allocate(arena), _mip, _x, _y, _z, _width, _height, _depth, _nativeBuffer, _offset, _pitch, _slicePitch, _externalMemory, address(_releaseFn), address(_userData));
 			}
 		} catch (Throwable ex) {
 			throw invocationFailure(ex);
@@ -7774,7 +7847,7 @@ public final class Bgfx {
 	}
 
 	/**
-	 * Internal data.
+	 * InternalData native structure.
 	 */
 	@NullMarked
 	public static final class InternalData extends NativeObject {
@@ -7783,11 +7856,14 @@ public final class Bgfx {
 		 */
 		public static final StructLayout LAYOUT = cStruct("bgfx_internal_data_t",
 			ValueLayout.ADDRESS.withName("caps"),
-			ValueLayout.ADDRESS.withName("context"));
+			ValueLayout.ADDRESS.withName("context"),
+			Bgfx.InternalData.Vulkan.LAYOUT.withName("vulkan"));
 		private static final VarHandle VH_CAPS = LAYOUT.varHandle(
 			MemoryLayout.PathElement.groupElement("caps"));
 		private static final VarHandle VH_CONTEXT = LAYOUT.varHandle(
 			MemoryLayout.PathElement.groupElement("context"));
+		private static final MethodHandle MH_VULKAN = LAYOUT.sliceHandle(
+			MemoryLayout.PathElement.groupElement("vulkan"));
 		/**
 		 * Wraps an existing native structure.
 		 * @param segment native memory segment
@@ -7822,7 +7898,7 @@ public final class Bgfx {
 		}
 
 		/**
-		 * GL context, or D3D device.
+		 * GL context, or the D3D11, D3D12, Metal or Vulkan device.
 		 * @return the field value
 		 */
 		public MemorySegment context() {
@@ -7836,6 +7912,113 @@ public final class Bgfx {
 		public InternalData context(MemorySegment value) {
 			VH_CONTEXT.set(segment(), 0L, address(value));
 			return this;
+		}
+
+		/**
+		 * Valid when the renderer is Vulkan; zeroed otherwise.
+		 * @return the field value
+		 */
+		public Bgfx.InternalData.Vulkan vulkan() {
+			return new Bgfx.InternalData.Vulkan(slice(MH_VULKAN, segment()));
+		}
+
+		/**
+		 * Sets the native {@code vulkan} field and returns {@code this}.
+		 * @param value the new field value
+		 */
+		public InternalData vulkan(Bgfx.InternalData.Vulkan value) {
+			slice(MH_VULKAN, segment()).copyFrom(value.segment());
+			return this;
+		}
+
+
+		/**
+		 * Internal data.
+		 * Vulkan objects of the renderer, for interop with other APIs (e.g. CUDA or
+		 * OpenCL importing memory exported by bgfx's device).
+		 */
+		@NullMarked
+		public static final class Vulkan extends NativeObject {
+			/**
+			 * Native C structure layout.
+			 */
+			public static final StructLayout LAYOUT = cStruct("bgfx_internal_data_vulkan_t",
+				ValueLayout.ADDRESS.withName("instance"),
+				ValueLayout.ADDRESS.withName("physicalDevice"),
+				ValueLayout.JAVA_BOOLEAN.withName("externalMemory"));
+			private static final VarHandle VH_INSTANCE = LAYOUT.varHandle(
+				MemoryLayout.PathElement.groupElement("instance"));
+			private static final VarHandle VH_PHYSICALDEVICE = LAYOUT.varHandle(
+				MemoryLayout.PathElement.groupElement("physicalDevice"));
+			private static final VarHandle VH_EXTERNALMEMORY = LAYOUT.varHandle(
+				MemoryLayout.PathElement.groupElement("externalMemory"));
+			/**
+			 * Wraps an existing native structure.
+			 * @param segment native memory segment
+			 */
+			public Vulkan(MemorySegment segment) {
+				super(segment, LAYOUT);
+			}
+
+			/**
+			 * Allocates a native structure.
+			 * @param allocator destination allocator
+			 */
+			public Vulkan(SegmentAllocator allocator) {
+				super(allocator, LAYOUT);
+			}
+
+			/**
+			 * {@code VkInstance}.
+			 * @return the field value
+			 */
+			public MemorySegment instance() {
+				return address((MemorySegment) VH_INSTANCE.get(segment(), 0L));
+			}
+
+			/**
+			 * Sets the native {@code instance} field and returns {@code this}.
+			 * @param value the new field value
+			 */
+			public Vulkan instance(MemorySegment value) {
+				VH_INSTANCE.set(segment(), 0L, address(value));
+				return this;
+			}
+
+			/**
+			 * {@code VkPhysicalDevice}.
+			 * @return the field value
+			 */
+			public MemorySegment physicalDevice() {
+				return address((MemorySegment) VH_PHYSICALDEVICE.get(segment(), 0L));
+			}
+
+			/**
+			 * Sets the native {@code physicalDevice} field and returns {@code this}.
+			 * @param value the new field value
+			 */
+			public Vulkan physicalDevice(MemorySegment value) {
+				VH_PHYSICALDEVICE.set(segment(), 0L, address(value));
+				return this;
+			}
+
+			/**
+			 * {@code VK_KHR_external_memory_fd} ({@code _win32} on Windows) is enabled:
+			 *   memory allocated on the device can be exported to other APIs.
+			 * @return the field value
+			 */
+			public boolean externalMemory() {
+				return (boolean) VH_EXTERNALMEMORY.get(segment(), 0L);
+			}
+
+			/**
+			 * Sets the native {@code externalMemory} field and returns {@code this}.
+			 * @param value the new field value
+			 */
+			public Vulkan externalMemory(boolean value) {
+				VH_EXTERNALMEMORY.set(segment(), 0L, value);
+				return this;
+			}
 		}
 	}
 

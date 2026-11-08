@@ -1206,6 +1206,7 @@ namespace bgfx
 			CreateTexture,
 			UpdateTexture,
 			ClearTexture,
+			CopyNativeBufferToTexture,
 			ResizeTexture,
 			CreateFrameBuffer,
 			ResizeFrameBuffer,
@@ -5993,6 +5994,17 @@ namespace bgfx
 		virtual void* createTexture(TextureHandle _handle, const Memory* _mem, uint64_t _flags, uint8_t _skip, uint64_t _external) = 0;
 		virtual void updateTexture(TextureHandle _handle, uint8_t _side, uint8_t _mip, const Rect& _rect, uint16_t _z, uint16_t _depth, uint16_t _pitch, const Memory* _mem) = 0;
 		virtual void clearTexture(TextureHandle _handle, uint8_t _mip, uint8_t _numMips, uint16_t _layer, uint16_t _numLayers) = 0;
+
+		/// Renderers without native buffer interop copy nothing and release right away.
+		virtual void copyNativeBufferToTexture(TextureHandle _handle, uint8_t _mip, const Rect& _rect, uint16_t _z, uint16_t _depth, uint64_t _nativeBuffer, uint64_t _offset, uint32_t _pitch, uint32_t _slicePitch, bool _externalMemory, ReleaseFn _releaseFn, void* _userData)
+		{
+			BX_UNUSED(_handle, _mip, _rect, _z, _depth, _offset, _pitch, _slicePitch, _externalMemory);
+			BX_WARN(false, "copyNativeBufferToTexture2D/3D is not supported by this renderer.");
+			if (NULL != _releaseFn)
+			{
+				_releaseFn( (void*)uintptr_t(_nativeBuffer), _userData);
+			}
+		}
 		virtual void readTexture(TextureHandle _handle, void* _data, uint16_t _layer, uint8_t _mip) = 0;
 		virtual void readBuffer(Handle _handle, void* _data, uint32_t _offset, uint32_t _size) = 0;
 		virtual void resizeTexture(TextureHandle _handle, uint16_t _width, uint16_t _height, uint8_t _numMips, uint16_t _numLayers) = 0;
@@ -8127,6 +8139,30 @@ namespace bgfx
 			cmdbuf.write(_depth);
 			cmdbuf.write(_pitch);
 			cmdbuf.write(_mem);
+		}
+
+		BGFX_API_FUNC(void copyNativeBufferToTexture(TextureHandle _handle, uint8_t _mip, uint16_t _x, uint16_t _y, uint16_t _z, uint16_t _width, uint16_t _height, uint16_t _depth, uint64_t _nativeBuffer, uint64_t _offset, uint32_t _pitch, uint32_t _slicePitch, bool _externalMemory, ReleaseFn _releaseFn, void* _userData) )
+		{
+			BGFX_MUTEX_SCOPE(m_resourceApiLock);
+
+			CommandBuffer& cmdbuf = getCommandBuffer(CommandBuffer::CopyNativeBufferToTexture);
+			cmdbuf.write(_handle);
+			cmdbuf.write(_mip);
+			Rect rect;
+			rect.m_x      = bx::narrowCast<int16_t>(_x);
+			rect.m_y      = bx::narrowCast<int16_t>(_y);
+			rect.m_width  = _width;
+			rect.m_height = _height;
+			cmdbuf.write(rect);
+			cmdbuf.write(_z);
+			cmdbuf.write(_depth);
+			cmdbuf.write(_nativeBuffer);
+			cmdbuf.write(_offset);
+			cmdbuf.write(_pitch);
+			cmdbuf.write(_slicePitch);
+			cmdbuf.write(_externalMemory);
+			cmdbuf.write(_releaseFn);
+			cmdbuf.write(_userData);
 		}
 
 		BGFX_API_FUNC(void clearTexture(TextureHandle _handle, uint8_t _mip, uint8_t _numMips, uint16_t _layer, uint16_t _numLayers) )
